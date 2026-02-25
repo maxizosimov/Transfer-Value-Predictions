@@ -11,17 +11,17 @@ def get_player_ids(understat: UnderstatClient, positions: Set[str], league: str 
     """
     Gets a list of all player ids for the given league, season, and positions.
     """
-    players = understat.league(league="EPL").get_player_data(season="2025")
+    players = understat.league(league=league).get_player_data(season=season)
     
     # Filter by position
     pos_players = list(filter(lambda p: any(pp in positions for pp in p["position"].split(" ")), players))
     return [p["id"] for p in pos_players]
     
 def get_player_stats_df(understat: UnderstatClient, player_id: str,
-                      stats: List[str], window_size: int=10) -> pd.DataFrame:
+                      stats: List[str]) -> pd.DataFrame:
     """
-    Produces a dataframe with rolling per-90 stats for each in the given list of stats,
-    using the given player_id and window size.
+    Produces a dataframe with per-90 stats for every game played by the given
+    player_id, for any club or season played.
     """
     # Get all player matches
     player_matches = understat.player(player=player_id).get_match_data()
@@ -32,22 +32,14 @@ def get_player_stats_df(understat: UnderstatClient, player_id: str,
     # Sort by date
     player_matches_df = player_matches_df.sort_values(by="date")
         
-    # Rolling stats over games
-    rolling_stats = list(map(lambda s: f"rolling_{s}_per_90", stats))
+    # Per-90 stats over games
+    per_90_stats = list(map(lambda s: f"{s}_per_90", stats))
 
-    # Get minute counts first
-    player_matches_df["rolling_min"] = player_matches_df["time"].rolling(window_size).sum()
-
-    # Rolling stats/90 for each
-    for stat, rolling_stat_name in zip(stats, rolling_stats):
-        rolling_stat = player_matches_df[stat].rolling(window_size).sum()
-        player_matches_df[rolling_stat_name] = rolling_stat / player_matches_df["rolling_min"] * 90
+    # Stats/90 for each
+    for stat, per_90_stat in zip(stats, per_90_stats):
+        player_matches_df[per_90_stat] = player_matches_df[stat] / player_matches_df["time"] * 90
 
     # Only date plus stats
-    stats_df = player_matches_df[["date"] + rolling_stats]
-        
-    # Drop nas (first window_size - 1)
-    stats_df = stats_df.dropna()
+    stats_df = player_matches_df[["date"] + per_90_stat]
         
     return stats_df
-

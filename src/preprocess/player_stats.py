@@ -2,9 +2,12 @@ from typing import List, Set
 
 import pandas as pd
 from understatapi import UnderstatClient
+import torch
+from torch.utils.data import Dataset
 
 """
-This module contains basic helpers to load in player stats using understat.
+This module contains basic helper functions or classes to load in or store
+player stats using understat.
 """
 
 def get_player_ids(understat: UnderstatClient, positions: Set[str], league: str = "EPL", season: str = "2025") -> List[str]:
@@ -46,3 +49,45 @@ def get_player_stats_df(understat: UnderstatClient, player_id: str,
     stats_df = stats_df.set_index("date")
         
     return stats_df
+
+class CustomFootballDataset(Dataset):
+    """
+    A torch dataset to wrap around a stats dataframe for training a time series
+    model.
+    
+    At a given index, one can get a pairing containing metrics for the last 
+    window_size games, along with the current game's metrics as the label.
+    """
+    
+    def __init__(self, stats_df: pd.DataFrame, window_size: int = 10, multiple_players: bool = True):
+        """
+        Initializes a CustomFootballDataset over the given stats_df, storing model
+        inputs and outputs in X and y respectively. Each value in X provides
+        a 2d array of stats for the last window_size games, while each value
+        in y provides stats for the current game to predict with the matching
+        X values.
+        """
+        super().__init__()
+        
+        self.X = []
+        self.y = []
+        
+        if multiple_players:   
+            # Break down by player
+            for _, player_df in stats_df.groupby("player_id"):
+                vals = player_df.values
+                for i in range(len(vals) - window_size):
+                    self.X.append(vals[i:i + window_size])
+                    self.y.append(vals[i + window_size])
+                    
+        else:
+            vals = stats_df.values
+            for i in range(len(vals) - window_size):
+                self.X.append(vals[i:i + window_size])
+                self.y.append(vals[i + window_size])
+
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, idx):
+        return torch.tensor(self.X[idx], dtype=torch.float32), torch.tensor(self.y[idx], dtype=torch.float32)

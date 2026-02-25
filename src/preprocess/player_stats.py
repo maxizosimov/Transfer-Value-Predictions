@@ -21,7 +21,7 @@ def get_player_stats_df(understat: UnderstatClient, player_id: str,
                       stats: List[str]) -> pd.DataFrame:
     """
     Produces a dataframe with per-90 stats for every game played by the given
-    player_id, for any club or season played.
+    player_id, for any club or season played. Indexes by date.
     """
     # Get all player matches
     player_matches = understat.player(player=player_id).get_match_data()
@@ -37,9 +37,12 @@ def get_player_stats_df(understat: UnderstatClient, player_id: str,
 
     # Stats/90 for each
     for stat, per_90_stat in zip(stats, per_90_stats):
-        player_matches_df[per_90_stat] = player_matches_df[stat] / player_matches_df["time"] * 90
+        player_matches_df[per_90_stat] = player_matches_df[stat].astype(float) / player_matches_df["time"].astype(int) * 90
 
     # Only date plus stats
-    stats_df = player_matches_df[["date"] + per_90_stat]
+    stats_df = player_matches_df[["date"] + per_90_stats].copy()
+    
+    # Set index to id and date
+    stats_df = stats_df.set_index("date")
         
     return stats_df

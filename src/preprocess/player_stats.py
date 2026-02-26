@@ -50,15 +50,17 @@ def get_player_stats_df(understat: UnderstatClient, player_id: str,
         
     return stats_df
 
-def get_multiple_players_stats_df(understat: UnderstatClient, player_ids: List[str],
+def get_position_players_stats_df(understat: UnderstatClient, position: List[str],
                       stats: List[str]) -> pd.DataFrame:
     """
-    Produces a dataframe with per-90 stats for every game played by each of the given
+    Produces a dataframe of all players with a given position
+    with per-90 stats for every game played by each of the given
     player_ids, for any club or season played. Indexes by player_id and date.
     """
     
     stats_dfs = []
     
+    player_ids = get_player_ids(understat, set(position))
     for player_id in player_ids:
         stats_df = get_player_stats_df(understat, player_id, stats)
         # Add id to index

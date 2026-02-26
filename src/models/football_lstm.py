@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from sklearn.metrics import mean_absolute_error, root_mean_squared_error
 
 class FootballLSTM(nn.Module):
     
@@ -48,17 +49,53 @@ class FootballLSTM(nn.Module):
             
         return torch.stack(predictions).transpose(0,1) # (batch_size, k, n_features)
     
-    def train_model(self, optimizer, loss_fn, train_dataloader, n_epochs: int):
+    def train_model(self, optimizer, loss_fn, train_dataloader, test_dataloader, n_epochs: int=10, test_every: int=1):
         """
         Trains the model for n_epochs using the given optimizer and loss function,
         on the given training dataloader. After each epoch, evaluates on the test
         dataloader and prints the test loss.
         """
-        for _ in range(n_epochs):
+        for epoch in range(n_epochs):
             self.train()
+            train_loss = 0
             for X_batch, y_batch in train_dataloader:
                 optimizer.zero_grad()
                 outputs = self(X_batch)
                 loss = loss_fn(outputs, y_batch)
+                train_loss += loss.item()
                 loss.backward()
                 optimizer.step()
+                
+            print(f"Train total loss: {train_loss}")
+                
+            if epoch % test_every == 0:
+                test_loss = 0
+                with torch.no_grad():
+                    for X_batch, y_batch in test_dataloader:
+                        outputs = self(X_batch)
+                        
+                        loss = loss_fn(outputs, y_batch)
+                        test_loss += loss.item()
+            
+            print(f"Test total loss: {test_loss}")
+    
+    @torch.no_grad()
+    def eval_model(self, test_dataloader):
+        """
+        Evaluates model performance on the given test dataloader, printing
+        the RMSE and MAE.
+        """
+        y_preds = [] # (n_batches, batch_size, n_features)
+        y_trues = [] # (n_batches, batch_size, n_features)
+        
+        for X_batch, y_batch in test_dataloader:
+            outputs = self(X_batch) # (batch_size, n_features)
+            
+            y_preds.append(outputs)
+            y_trues.append(y_batch)
+            
+        y_preds = torch.cat(y_preds).detach().cpu().numpy()
+        y_trues = torch.cat(y_trues).detach().cpu().numpy()
+        
+        print(f"Test RMSE: {root_mean_squared_error(y_trues, y_preds)}")
+        print(f"Test MAE: {mean_absolute_error(y_trues, y_preds)}")

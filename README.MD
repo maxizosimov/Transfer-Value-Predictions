@@ -11,7 +11,7 @@ Current Idea: To use different models for different positions.
 # Repository Overview
 
 ## File Structure
-
+```text
 src/
 ├── models/
 │   ├── football_lstm.py 
@@ -21,6 +21,7 @@ src/
     ├── player_stats.py
     ├── data_basics.ipynb
     └── __init__.py
+```
 
 ### `football_lstm.py`
 A torch class that intializes our LSTM model and trains it with evaluation output in terms of loss during training and testing. Also contains a prediction function that allows us to predict the next k game performances for given player.

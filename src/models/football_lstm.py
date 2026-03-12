@@ -7,14 +7,15 @@ from matplotlib import pyplot as plt
 class FootballLSTM(nn.Module):
     
     
-    def __init__(self, n_features: int, hidden_size: int):
+    def __init__(self, n_features: int, hidden_size: int, num_layers: int=1, dropout: float=0.3):
         """
         Initializes a FootballLSTM, with the given hidden size, to work with the
         given number of input features. Note that n_features defines both
         the input and output dimensions for the underlying LSTM implementation. 
         """
         super().__init__()
-        self.lstm = nn.LSTM(n_features, hidden_size, batch_first=True)
+        self.lstm = nn.LSTM(n_features, hidden_size, num_layers=num_layers,
+                            dropout=dropout, batch_first=True)
         self.fc = nn.Linear(hidden_size, n_features)
 
     def forward(self, x):

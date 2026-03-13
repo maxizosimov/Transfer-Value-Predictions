@@ -20,13 +20,13 @@ class FootballLSTM(nn.Module):
 
     def forward(self, x):
         """
-        Produces a prediction for the next game after the games represented in x.
+        Produces a prediction for the next game block after the game blocks represented in x.
         
-        x should have shape (batch_size, window_size, n_features).
+        x should have shape (batch_size, blocks_per_input, n_features).
         
         Output will have shape (batch_size, n_features)
         """
-        lstm_out, _ = self.lstm(x) # (batch_size, window_size, hidden_size)
+        lstm_out, _ = self.lstm(x) # (batch_size, blocks_per_input, hidden_size)
         last_hidden_state = lstm_out[:, -1, :] # (batch_size, hidden_size)
         output = self.fc(last_hidden_state) # (batch_size, n_features)
         return output
@@ -34,10 +34,10 @@ class FootballLSTM(nn.Module):
     @torch.no_grad()
     def predict_next_k(self, x, k: int):
         """
-        Produces a prediction for each of the next k games after the games
+        Produces a prediction for each of the next k game blocks after the game blocks
         represented in x.
         
-        x should have shape (batch_size, window_size, n_features).
+        x should have shape (batch_size, blocks_per_input, n_features).
         
         Output will have shape (batch_size, k, n_features)
         """
@@ -48,7 +48,7 @@ class FootballLSTM(nn.Module):
             out = self(inpt) # (batch_size, n_features)
             predictions.append(out)
             # Keep all but 1st, and add next
-            inpt = torch.cat((inpt[:,1:,:], out.unsqueeze(0)), dim=1) # (batch_size, window_size, n_features)
+            inpt = torch.cat((inpt[:,1:,:], out.unsqueeze(0)), dim=1) # (batch_size, blocks_per_input, n_features)
             
         return torch.stack(predictions).transpose(0,1) # (batch_size, k, n_features)
     
@@ -104,23 +104,23 @@ class FootballLSTM(nn.Module):
         print(f"Test MAE: {mean_absolute_error(y_trues, y_preds)}")
         
     @torch.no_grad()
-    def eval_model_on_player(self, player_stats_df: pd.DataFrame, window_size: int=10):
+    def eval_model_on_player(self, player_stats_df: pd.DataFrame, blocks_per_input: int=10):
         """
         Evaluates model performance on a particular player DataFrame. Uses the
-        first window_size games for training and the rest for testing, plotting
+        first blocks_per_input game blocks for training and the rest for testing, plotting
         each actual vs. predicted stat over time.
         
         Also prints RMSE and MAE for the combined metrics, and for each metric
         by itself.
         """
-        x = torch.tensor(player_stats_df.values[:window_size], dtype=torch.float32)
+        x = torch.tensor(player_stats_df.values[:blocks_per_input], dtype=torch.float32)
         
         # Have to unsqueeze to add batch dimension
         x = x.unsqueeze(0)
         
-        y_trues = torch.tensor(player_stats_df.values[window_size:], dtype=torch.float32)
+        y_trues = torch.tensor(player_stats_df.values[blocks_per_input:], dtype=torch.float32)
         
-        y_preds = self.predict_next_k(x, len(player_stats_df) - window_size)
+        y_preds = self.predict_next_k(x, len(player_stats_df) - blocks_per_input)
         
         # Get rid of batch dimension
         y_preds = y_preds.squeeze(0)
@@ -145,7 +145,7 @@ class FootballLSTM(nn.Module):
             ax[i].plot(stat_predictions, color="red", label=f"Predicted {stat}")
             ax[i].legend()
             ax[i].grid()
-            ax[i].set_xlabel("Game")
+            ax[i].set_xlabel("Game Block")
             ax[i].set_ylabel(f"{stat}")
         
         plt.show()

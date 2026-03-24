@@ -92,7 +92,7 @@ class FootballLSTM(nn.Module):
     def eval_model(self, test_dataloader):
         """
         Evaluates model performance on the given test dataloader, printing
-        the RMSE and MAE.
+        the RMSE and MAE as well as returning them for comparison.
         """
         y_preds = [] # (n_batches, batch_size, n_features)
         y_trues = [] # (n_batches, batch_size, n_features)
@@ -105,9 +105,14 @@ class FootballLSTM(nn.Module):
             
         y_preds = torch.cat(y_preds).detach().cpu().numpy()
         y_trues = torch.cat(y_trues).detach().cpu().numpy()
+
+        rmse = root_mean_squared_error(y_trues, y_preds)
+        mae = mean_absolute_error(y_trues, y_preds)
         
-        print(f"Test RMSE: {root_mean_squared_error(y_trues, y_preds)}")
-        print(f"Test MAE: {mean_absolute_error(y_trues, y_preds)}")
+        print(f"Test RMSE: {rmse}")
+        print(f"Test MAE: {mae}")
+
+        return rmse, mae
         
     @torch.no_grad()
     def eval_model_on_player(self, player_stats_df: pd.DataFrame, blocks_per_input: int=10):

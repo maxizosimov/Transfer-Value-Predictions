@@ -157,4 +157,3 @@ class FootballLSTM(nn.Module):
             ax[i].set_ylabel(f"{stat}")
         
         plt.show()
-            

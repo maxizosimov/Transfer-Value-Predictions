@@ -70,6 +70,8 @@ def hyperparam_tuning(params: dict, stats_df: pd.DataFrame, train_dataloader: to
     plt.legend()
     plt.title(f"""Hyperparameter Tuning - Train vs Test Loss (lr: {param_dict['learning_rate']}, epoch: {param_dict['epoch']}, 
             layers: {param_dict['layers']}, hidden size: {param_dict['hidden_size']}, dropout: {param_dict['dropout']})""")
+    # ran 100min hyperparameter tuning, and dir was not there as I had not saved any graphs yet, so make dir if it does not exist
+    os.makedirs("tuning_graphs", exist_ok=True)
     plt.savefig(f"tuning_graphs/"f"lr{param_dict['learning_rate']}_ep{param_dict['epoch']}_ly{param_dict['layers']}_hs{param_dict['hidden_size']}_do{param_dict['dropout']}.png")
     plt.close()
         

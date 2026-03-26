@@ -4,6 +4,9 @@ from sklearn.metrics import mean_absolute_error, root_mean_squared_error
 import pandas as pd
 from matplotlib import pyplot as plt
 
+# have GPU available to speed up
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 class FootballLSTM(nn.Module):
     
     
@@ -66,6 +69,10 @@ class FootballLSTM(nn.Module):
             self.train()
             train_loss = 0
             for X_batch, y_batch in train_dataloader:
+                # to be able to run on GPU
+                X_batch = X_batch.to(device)
+                y_batch = y_batch.to(device)
+
                 optimizer.zero_grad()
                 outputs = self(X_batch)
                 loss = loss_fn(outputs, y_batch)
@@ -79,6 +86,9 @@ class FootballLSTM(nn.Module):
                 test_loss = 0
                 with torch.no_grad():
                     for X_batch, y_batch in test_dataloader:
+                        # to be able to run on GPU
+                        X_batch = X_batch.to(device)
+                        y_batch = y_batch.to(device)
                         outputs = self(X_batch)
                         
                         loss = loss_fn(outputs, y_batch)
@@ -98,6 +108,9 @@ class FootballLSTM(nn.Module):
         y_trues = [] # (n_batches, batch_size, n_features)
         
         for X_batch, y_batch in test_dataloader:
+            # to be able to run on GPU
+            X_batch = X_batch.to(device)
+            y_batch = y_batch.to(device)
             outputs = self(X_batch) # (batch_size, n_features)
             
             y_preds.append(outputs)
@@ -124,9 +137,10 @@ class FootballLSTM(nn.Module):
         x = torch.tensor(player_stats_df.values[:blocks_per_input], dtype=torch.float32)
         
         # Have to unsqueeze to add batch dimension
-        x = x.unsqueeze(0)
+        x = x.unsqueeze(0).to(device)
         
         y_trues = torch.tensor(player_stats_df.values[blocks_per_input:], dtype=torch.float32)
+        y_trues = y_trues.to(device)
         
         y_preds = self.predict_next_k(x, len(player_stats_df) - blocks_per_input)
         

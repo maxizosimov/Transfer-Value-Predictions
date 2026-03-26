@@ -10,6 +10,9 @@ target_dir = os.path.abspath('..')
 
 if target_dir not in sys.path:
     sys.path.append(target_dir)
+
+# have GPU available to speed up
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
 from football_lstm import FootballLSTM
 
@@ -28,9 +31,9 @@ def hyperparam_tuning(params: dict, stats_df: pd.DataFrame, train_dataloader: to
 
                         # non-zero dropout expects num_layers greater than 1 so train with dropout set to 0
                         if layer == 1:
-                            model = FootballLSTM(n_features=len(stats_df.columns), hidden_size=h_size, num_layers=layer, dropout=0)
+                            model = FootballLSTM(n_features=len(stats_df.columns), hidden_size=h_size, num_layers=layer, dropout=0).to(device)
                         else:
-                            model = FootballLSTM(n_features=len(stats_df.columns), hidden_size=h_size, num_layers=layer, dropout=dropout)
+                            model = FootballLSTM(n_features=len(stats_df.columns), hidden_size=h_size, num_layers=layer, dropout=dropout).to(device)
                                 
                         loss_fn = nn.MSELoss()
                         optimizer = torch.optim.Adam(model.parameters(), lr=lr)

@@ -4,7 +4,8 @@ import torch
 import torch.nn as nn
 from matplotlib import pyplot as plt
 import pandas as pd
-
+from tqdm.notebook import tqdm # Use tqdm.notebook for cleaner outputs in notebooks.
+ 
 # Also import local helpers
 target_dir = os.path.abspath('..') 
 
@@ -23,11 +24,11 @@ def hyperparam_tuning(params: dict, stats_df: pd.DataFrame, train_dataloader: to
     best_combo = None
     previous_best = None
 
-    for lr in params['learning_rates']:
-        for epoch in params['epochs']:
-            for layer in params['layers']:
-                for h_size in params['h_sizes']:
-                    for dropout in params['dropouts']:
+    for lr in tqdm(params['learning_rates'], desc="learning_rates", position=0):
+        for epoch in tqdm(params['epochs'], desc="epochs", position=1, leave=False):
+            for layer in tqdm(params['layers'], desc="layers", position=2, leave=False):
+                for h_size in tqdm(params['h_sizes'], desc="h_sizes", position=4, leave=False):
+                    for dropout in tqdm(params['dropouts'], desc="dropouts", position=5, leave=False):
 
                         # non-zero dropout expects num_layers greater than 1 so train with dropout set to 0
                         if layer == 1:

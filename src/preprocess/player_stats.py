@@ -1,4 +1,9 @@
-from typing import List, Set
+from typing import List, Set, Dict
+from collections import defaultdict
+import os
+import json
+import shutil
+import glob
 
 import pandas as pd
 from understatapi import UnderstatClient
@@ -22,17 +27,23 @@ def get_player_ids(understat: UnderstatClient, positions: List[str], league: str
     pos_players = list(filter(lambda p: any(pp in positions for pp in p["position"].split(" ")), players))
     return [p["id"] for p in pos_players]
     
-def get_player_stats_df(understat: UnderstatClient, player_id: str, games_per_block: int,
-                      stats: List[str]) -> pd.DataFrame:
+def get_player_stats_df(understat: UnderstatClient,
+                        player_id: str,
+                        games_per_block: int,
+                        stats: List[str]) -> pd.DataFrame:
     """
     Produces a dataframe with aggregate per-90 stats for every games_per_block games played by the given
-    player_id, for any club or season played. Indexes by date.
+    player_id, for the given leagues and seasons. Indexes by date.
     
     Note each row contains data for a disjoint set of games.
     
     Note if the player played less than games_per_block games, an empty dataframe
     will be returned.
     """
+    # Turn into sets for easy membership checks
+    leagues = set(leagues)
+    seasons = set(seasons)
+    
     # Get all player matches
     player_matches = understat.player(player=player_id).get_match_data()
         
@@ -75,7 +86,61 @@ def get_player_stats_df(understat: UnderstatClient, player_id: str, games_per_bl
         
     return agg_df
 
-def get_position_players_stats_df(understat: UnderstatClient, position: List[str],
+def get_player_stats_df_from_info(games_per_block: int,
+                                  player_info: Dict,
+                                  stats: List[str]):
+    """
+    Produces player per-90 stats but on the given info dict, not using understat
+    at all.
+    """
+    #print(player_info)
+    
+    # Convert to dataframe
+    player_matches_df = pd.DataFrame(player_info)
+    
+    # Sort by date
+    player_matches_df = player_matches_df.sort_values(by="date")
+    
+    # Per-90 stats over games
+    per_90_stats = list(map(lambda s: f"{s}_per_90", stats))
+    
+    def aggregate_in_window(window_df):
+        """Constructs a particular aggregated row with per-90 stats."""
+        mins = window_df["time"].astype(int).sum()
+        
+        row = {}
+        
+        for stat, per_90_stat in zip(stats, per_90_stats):
+            row[per_90_stat] = window_df[stat].astype(float).sum() / mins * 90
+        
+        # For date, take the max
+        row["date"] = max(window_df["date"])
+            
+        return row
+        
+    # Construct aggregated_df
+    rows = []
+    
+    for i in range(0, len(player_matches_df) - games_per_block, games_per_block):
+        rows.append(aggregate_in_window(player_matches_df.iloc[i:i + games_per_block]))
+        
+    agg_df = pd.DataFrame(rows)
+    
+    # Add player id col
+    agg_df["player_id"] = player_matches_df["player_id"][0]
+    
+    # Add player name col
+    agg_df["player_name"] = player_matches_df["player"][0]
+    
+    #print(agg_df.head())
+
+    # Set index to date and name and  player_id
+    if not agg_df.empty: # Below will error for empty df
+        agg_df = agg_df.set_index(["player_id", "player_name", "date"])
+        
+    return agg_df
+
+def get_position_players_stats_df(understat: UnderstatClient, positions: List[str],
                                   games_per_block: int,
                                   stats: List[str],
                                   leagues: List[str] = ["EPL"],
@@ -85,26 +150,76 @@ def get_position_players_stats_df(understat: UnderstatClient, position: List[str
     with aggregate per-90 stats, for every block of games_per_block games played by each of the given
     player_ids, for any club or season played. Indexes by player_id and date.
     """
-    # First get all player ids for positions, leagues and seasons.
     
-    player_ids = set() # Store as set to ensure no duplicates
+    player_info_map = defaultdict(list)
+    
+    positions = set(positions)
+    
+    # 1. Get mapping of players to their game data, for the relevant leagues, save to disk to fix memory issues.
+    
+    dir_name = "../data/tmp_player_data"
+    
+    os.makedirs(dir_name, exist_ok=True)
+    
+    skipped_matches = 0 # Count how many skipped
     
     for league in leagues:
         for season in seasons:
-            ls_ids = get_player_ids(understat, position, league, season)
-            player_ids = player_ids | set(ls_ids)
+            # Get ids for given position in league and season
+            player_ids = set(get_player_ids(understat, list(positions), league, season))
+            
+            # Get all matches in this league/season
+            matches = understat.league(league=league).get_match_data(season=str(season))
+        
+            for match in matches:
+                
+                try:
+                
+                    match_id = match['id']
+                    # Get player stats for this specific match
+                
+                    roster = understat.match(match=match_id).get_roster_data()
+                
+                    date = match['datetime']
+            
+                    for side in ['h', 'a']:
+                        for _, player_info in roster[side].items():
+                            if player_info['player_id'] in player_ids:
+                                player_info['date'] = date
+                                player_info['league'] = league
+                        
+                                # Append to player's file
+                                filepath = f"{dir_name}/{player_info['player_id']}.jsonl"
+                                with open(filepath, 'a') as f:
+                                    f.write(json.dumps(player_info) + '\n')
+                
+                except Exception as e: # 
+                    print(f"Caught error {e}, skipping match.")
+                    skipped_matches += 1
     
-    stats_dfs = []
-    for player_id in player_ids:
-        stats_df = get_player_stats_df(understat, player_id, games_per_block, stats)
-        # Add id to index
-        stats_df["player_id"] = player_id
-        stats_df = stats_df.set_index("player_id", append=True)
-        # Swap to index by player_id
-        stats_df = stats_df.swaplevel()
-        stats_dfs.append(stats_df)
+    print(f"Skipped {skipped_matches} matches total.")
+      
+    # 2. Process players from disk and incrementally write to parquet (faster than csv)             
+    for filename in os.listdir(dir_name):
+        player_info = []
+        with open(f"{dir_name}/{filename}", 'r') as f:
+            for line in f:
+                player_info.append(json.loads(line))
+    
+        stats_df = get_player_stats_df_from_info(games_per_block, player_info, stats)
+    
+        if not stats_df.empty:
+            player_id = filename.replace('.jsonl', '')
+            stats_df.to_parquet(f"{dir_name}/{player_id}.parquet")
+    
+        del player_info
+        del stats_df
 
-    return pd.concat(stats_dfs)
+    # Combine all parquet files at the end
+    result = pd.concat([pd.read_parquet(f) for f in glob.glob(f"{dir_name}/*.parquet")])
+
+    shutil.rmtree(dir_name)
+    return result
 
 class CustomFootballDataset(Dataset):
     """

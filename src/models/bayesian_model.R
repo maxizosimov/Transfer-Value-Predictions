@@ -1,14 +1,19 @@
 library(scales)  # For Min-Max scaling
 library(mvnfast) # For MVN calcs
 library(MCMCpack) # For inverse gamma sampling
+library(MLmetrics) # Contains R^2 function
+library(data.table) # For single feature one-hot encoding
 # Train the model: read in real player stats and values
 
 # Get real data
 real_stats_values <- read.csv("src/data/F_stats_values.csv")
 head(real_stats_values)
 
-X <- data.matrix(real_stats_values[,-c(1,2,3,11)])
-y <- data.matrix(real_stats_values[,11])
+X <- data.matrix(real_stats_values[,-c(1,2,3,6,14)])
+y <- data.matrix(real_stats_values[,14])
+
+# Log-transform y
+y <- log(y)
 
 # Scale X using min/max scaling
 X <- apply(X, MARGIN = 2, function(x) rescale(x, to = c(0, 1)))
@@ -29,8 +34,19 @@ y_test <- y[-train_indices]
 w_hat <- solve(t(X_train)%*%X_train)%*%t(X_train)%*%y_train
 w_hat
 
-head(X %*% w_hat)
-head(real_stats_values)
+# Look at a few predictions
+y_test_pred <- X_test %*% w_hat
+head(y_test_pred)
+head(real_stats_values[-train_indices,])
+
+# Calculate MSE
+mse <- function(actuals, preds) {
+    mean((preds - actuals)**2)
+}
+
+mse(y_test, y_test_pred)
+# Calculate R^2
+R2_Score(y_pred = y_test_pred, y_true = y_test)
 
 # Normal model with unknown (common) variance
 # Fit via Gibbs sampling

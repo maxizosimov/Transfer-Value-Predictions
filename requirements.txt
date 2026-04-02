@@ -61,3 +61,4 @@ understatapi==0.7.1
 urllib3==1.26.5
 wcwidth==0.6.0
 ipywidgets
+pyarrow

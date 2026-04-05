@@ -3,67 +3,78 @@ library(mvnfast) # For MVN calcs
 library(MCMCpack) # For inverse gamma sampling
 library(MLmetrics) # Contains R^2 function
 library(data.table) # For single feature one-hot encoding
+
 # Train the model: read in real player stats and values
 
-# Get real data
-real_stats_values <- read.csv("src/data/F_stats_values.csv")
-head(real_stats_values)
+position <- 'F'
 
-X <- data.matrix(real_stats_values[,-c(1,2,3,6,14)])
-y <- data.matrix(real_stats_values[,14])
+# Get real data
+train_data <- read.csv(sprintf("src/data/%s_stats_values_train.csv", position))
+test_data <- read.csv(sprintf("src/data/%s_stats_values_test.csv", position))
+head(train_data)
+
+# One-hot encode league
+# Get league levels from training data only
+league_levels <- unique(train_data$league)
+
+# Force test data to use same levels
+train_data$league <- factor(train_data$league, levels = league_levels)
+test_data$league <- factor(test_data$league, levels = league_levels)
+
+# One-hot encode both using same reference level
+train_league_cols <- model.matrix(~ league - 1, data = train_data)[, -1]
+test_league_cols <- model.matrix(~ league - 1, data = test_data)[, -1]
+
+# Combine
+train_data <- cbind(train_data[, -4], train_league_cols)
+test_data <- cbind(test_data[, -4], test_league_cols)
+
+# Get train/test matrices
+X_train <- data.matrix(train_data[,-c(1,2,3,11)])
+y_train <- data.matrix(train_data[,11])
+
+X_test <- data.matrix(test_data[,-c(1,2,3,11)])
+y_test <- data.matrix(test_data[,11])
 
 # Log-transform y
-y <- log(y)
+y_train <- log(y_train)
+y_test <- log(y_test)
 
 # Scale X using min/max scaling
-X <- apply(X, MARGIN = 2, function(x) rescale(x, to = c(0, 1)))
+X_train <- apply(X_train, MARGIN = 2, function(x) rescale(x, to = c(0, 1)))
+X_test <- apply(X_test, MARGIN = 2, function(x) rescale(x, to = c(0, 1)))
 
 # Add bias column to X
-X <- cbind(X, bias = 1)
-
-# Train/test split
-train_size = 0.8
-train_indices <- sample(1:nrow(X), size = round(train_size * nrow(X)), replace = F)
-
-X_train <- X[train_indices, ]
-y_train <- y[train_indices]
-X_test <- X[-train_indices, ]
-y_test <- y[-train_indices]
+X_train <- cbind(X_train, bias = 1)
+X_test <- cbind(X_test, bias = 1)
 
 # Using OLS
 w_hat <- solve(t(X_train)%*%X_train)%*%t(X_train)%*%y_train
 w_hat
 
-# Look at a few predictions
-y_test_pred <- X_test %*% w_hat
-head(y_test_pred)
-head(real_stats_values[-train_indices,])
-
-# Calculate MSE
-mse <- function(actuals, preds) {
-    mean((preds - actuals)**2)
-}
-
-mse(y_test, y_test_pred)
-# Calculate R^2
-R2_Score(y_pred = y_test_pred, y_true = y_test)
-
 # Normal model with unknown (common) variance
 # Fit via Gibbs sampling
 
-
 # Define priors
-prior_w <- matrix(c(1, # All should positively contribute
-                    1,
-                    1,
-                    1, 
-                    1,
-                    1,
-                    1,
+prior_w <- matrix(c(1, # goals
+                    1, # xg
+                    1, # assists
+                    1, # xa
+                    1, # key passes
+                    1, # xgchain
+                    1, # xgbuildup
+                    1, # year
+                    1, # age
+                    0, # Ligue 1
+                    0, # Bundesliga
+                    0, # PL
+                    0, # La liga
                     0 # intercept of 0
                     ), ncol = 1)
 
-prior_Sigma <- diag(8)*100 # uncertain though; use big sd = 10
+p <- nrow(prior_w)
+
+prior_Sigma <- diag(p)*100 # uncertain though; use big sd = 10
 
 # Now need priors for sigma_y
 prior_alpha <- 1
@@ -72,12 +83,12 @@ prior_beta <- 1
 n <- length(y_train)
 
 # Set up markov chain matrices
-no_samples <- 10000
-gibbs_samples_w <- matrix(0, nrow = no_samples, ncol = 8)
+no_samples <- 100
+gibbs_samples_w <- matrix(0, nrow = no_samples, ncol = p)
 gibbs_samples_sigmay <- matrix(0, nrow = no_samples, ncol = 1)
 
 #initialize
-w_tilde <- matrix(0, nrow = 8, ncol = 1)
+w_tilde <- matrix(0, nrow = p, ncol = 1)
 sigma2_tilde <- 1
 
 # run the sampler
@@ -101,8 +112,8 @@ for(i in 1:no_samples){
 
 # check convergence and mixing of weights
 head(gibbs_samples_w)
-plot(gibbs_samples_w[,1], type = "l") # change the index to examine the 8 weights
-acf(gibbs_samples_w[,1]) # change the index to examine the 8 weights
+plot(gibbs_samples_w[,1], type = "l") # change the index to examine the weights
+acf(gibbs_samples_w[,1]) # change the index to examine the weights
 
 # check convergence and mixing of variance term
 head(gibbs_samples_sigmay)
@@ -111,20 +122,51 @@ acf(gibbs_samples_sigmay)
 
 # visualize posteriors?
 hist(gibbs_samples_sigmay, main = "Posterior of Variance of Market Value", xlim=c(min(gibbs_samples_sigmay), max(gibbs_samples_sigmay)))
-hist(gibbs_samples_w[,1], main = "Posterior of goals_per_90 Slope", xlim=c(min(gibbs_samples_w[,1]), max(gibbs_samples_w[,1])))
-hist(gibbs_samples_w[,2], main = "Posterior of xG_per_90 Slope", xlim=c(min(gibbs_samples_w[,2]), max(gibbs_samples_w[,2])))
-hist(gibbs_samples_w[,3], main = "Posterior of assists_per_90 Slope", xlim=c(min(gibbs_samples_w[,3]), max(gibbs_samples_w[,3])))
-hist(gibbs_samples_w[,4], main = "Posterior of xA_per_90 Slope", xlim=c(min(gibbs_samples_w[,4]), max(gibbs_samples_w[,4])))
-hist(gibbs_samples_w[,5], main = "Posterior of key_passes_per_90 Defense Slope", xlim=c(min(gibbs_samples_w[,5]), max(gibbs_samples_w[,5])))
-hist(gibbs_samples_w[,6], main = "Posterior of xGChain_per_90 Slope", xlim=c(min(gibbs_samples_w[,6]), max(gibbs_samples_w[,6])))
-hist(gibbs_samples_w[,7], main = "Posterior of xGBuildup_per_90 Slope", xlim=c(min(gibbs_samples_w[,7]), max(gibbs_samples_w[,7])))
-hist(gibbs_samples_w[,7], main = "Posterior of Intercept", xlim=c(min(gibbs_samples_w[,8]), max(gibbs_samples_w[,8])))
+hist(gibbs_samples_w[,1], main = "Posterior of _ Slope", xlim=c(min(gibbs_samples_w[,1]), max(gibbs_samples_w[,1])))
 
-# Generating predictive distribution for Dembele
-demb_hat <- c()
-for(i in 1:nrow(gibbs_samples_w)){
-    demb_hat <- c(demb_hat, rnorm(n = 1, mean = t(gibbs_samples_w[i,])%*%X[1,], sd = sqrt(gibbs_samples_sigmay[i,])))
+# Get test predictions
+get_preds <- function(X) {
+    test_preds <- matrix(0, nrow = nrow(X), ncol = no_samples)
+    for(i in 1:no_samples) {
+        test_preds[,i] <- rmvn(n=1, mu=X%*%gibbs_samples_w[i,], sigma=diag(nrow(X))*gibbs_samples_sigmay[i])
+    }
+    rowMeans(test_preds)
 }
-hist(demb_hat, main = "Post Pred Dist of Dembele (2021)")
-mean(demb_hat)
-y[1]
+
+y_test_pred <- get_preds(X_test)
+
+rmse(exp(y_test), exp(y_test_pred))
+# Calculate R^2
+R2_Score(y_pred = y_test_pred, y_true = y_test)
+
+############################################### What if given PREDICTED performance from LSTM?
+full_test_data <- read.csv(sprintf("src/data/%s_predictions_real_values.csv", position))
+head(full_test_data)
+
+full_test_data$league <- factor(full_test_data$league, levels = league_levels)
+
+# One-hot encode using same reference level
+ft_league_cols <- model.matrix(~ league - 1, data = full_test_data)[, -1]
+
+# Combine
+full_test_data <- cbind(full_test_data[, -4], ft_league_cols)
+
+# Get matrices
+X_full_test <- data.matrix(full_test_data[,-c(1,2,3,11)])
+y_full_test <- data.matrix(full_test_data[,11])
+
+# Log-transform y
+y_full_test <- log(y_full_test)
+
+# Scale X using min/max scaling
+X_full_test <- apply(X_full_test, MARGIN = 2, function(x) rescale(x, to = c(0, 1)))
+
+# Add bias column to X
+X_full_test <- cbind(X_full_test, bias = 1)
+
+# Make predictions
+y_full_test_pred <- get_preds(X_full_test)
+
+rmse(exp(y_full_test), exp(y_full_test_pred))
+# Calculate R^2
+R2_Score(y_pred = y_full_test_pred, y_true = y_full_test)

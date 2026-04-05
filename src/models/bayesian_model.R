@@ -6,7 +6,7 @@ library(data.table) # For single feature one-hot encoding
 
 # Train the model: read in real player stats and values
 
-position <- 'F'
+position <- 'M'
 
 # Get real data
 train_data <- read.csv(sprintf("src/data/%s_stats_values_train.csv", position))
@@ -135,9 +135,20 @@ get_preds <- function(X) {
 
 y_test_pred <- get_preds(X_test)
 
+rmse <- function(actuals, preds) {
+    sqrt(mean((actuals - preds)^2))
+}
+
 rmse(exp(y_test), exp(y_test_pred))
 # Calculate R^2
 R2_Score(y_pred = y_test_pred, y_true = y_test)
+
+# Plot predictions vs actuals
+plot(y_test, y_test_pred)
+abline(a = 0, b = 1, col = 'red', lwd = 2)
+
+sum(exp(y_test_pred) > 100000000)  # predictions over 100m
+sum(exp(y_test_pred) > 1000000000)  # predictions over 1 billion
 
 ############################################### What if given PREDICTED performance from LSTM?
 full_test_data <- read.csv(sprintf("src/data/%s_predictions_real_values.csv", position))
@@ -164,9 +175,18 @@ X_full_test <- apply(X_full_test, MARGIN = 2, function(x) rescale(x, to = c(0, 1
 # Add bias column to X
 X_full_test <- cbind(X_full_test, bias = 1)
 
+
+
 # Make predictions
 y_full_test_pred <- get_preds(X_full_test)
 
 rmse(exp(y_full_test), exp(y_full_test_pred))
 # Calculate R^2
 R2_Score(y_pred = y_full_test_pred, y_true = y_full_test)
+
+# Plot predictions vs actuals
+plot(y_full_test, y_full_test_pred)
+abline(a = 0, b = 1, col = 'red', lwd = 2)
+
+sum(exp(y_full_test_pred) > 100000000)  # predictions over 100m
+sum(exp(y_full_test_pred) > 1000000000)  # predictions over 1 billion

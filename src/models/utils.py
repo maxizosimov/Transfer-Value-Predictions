@@ -15,11 +15,11 @@ if target_dir not in sys.path:
 # have GPU available to speed up
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-from football_lstm import FootballLSTM
+from football_lstm import FootballLSTM, DifferencingFootballLSTM
 
-# hypertuning of LSTM
+# hypertuning of LSTM - differeced or not
 def hyperparam_tuning(params: dict, stats_df: pd.DataFrame, train_dataloader: torch.utils.data.DataLoader, 
-                          test_dataloader: torch.utils.data.DataLoader):
+                          test_dataloader: torch.utils.data.DataLoader, differenced: bool=False):
         
     best_combo = None
     previous_best = None
@@ -32,9 +32,15 @@ def hyperparam_tuning(params: dict, stats_df: pd.DataFrame, train_dataloader: to
 
                         # non-zero dropout expects num_layers greater than 1 so train with dropout set to 0
                         if layer == 1:
-                            model = FootballLSTM(n_features=len(stats_df.columns), hidden_size=h_size, num_layers=layer, dropout=0).to(device)
+                            if differenced:
+                                model = DifferencingFootballLSTM(n_features=len(stats_df.columns), hidden_size=h_size, num_layers=layer, dropout=0).to(device)
+                            else:
+                                model = FootballLSTM(n_features=len(stats_df.columns), hidden_size=h_size, num_layers=layer, dropout=0).to(device)
                         else:
-                            model = FootballLSTM(n_features=len(stats_df.columns), hidden_size=h_size, num_layers=layer, dropout=dropout).to(device)
+                            if differenced:
+                                model = DifferencingFootballLSTM(n_features=len(stats_df.columns), hidden_size=h_size, num_layers=layer, dropout=dropout).to(device)
+                            else:
+                                model = FootballLSTM(n_features=len(stats_df.columns), hidden_size=h_size, num_layers=layer, dropout=dropout).to(device)
                                 
                         loss_fn = nn.MSELoss()
                         optimizer = torch.optim.Adam(model.parameters(), lr=lr)

@@ -10,6 +10,7 @@ from understatapi import UnderstatClient
 import torch
 from torch.utils.data import Dataset
 import duckdb
+import numpy as np
 
 """
 This module contains basic helper functions or classes to load in or store
@@ -58,8 +59,8 @@ def get_player_stats_df_from_info(games_per_block: int,
         # For date, take the max
         row["date"] = max(window_df["date"])
         
-        # For league, take most common
-        row["league"] = window_df["league"][-1] # Get last
+        # For league, take last
+        row["league"] = window_df["league"].iloc[-1] # Get last
             
         return row
         
@@ -207,6 +208,59 @@ class CustomFootballDataset(Dataset):
 
     def __getitem__(self, idx):
         return torch.tensor(self.X[idx], dtype=torch.float32), torch.tensor(self.y[idx], dtype=torch.float32)
+    
+class DifferencedFootballDataset(Dataset):
+    """Version of CustomFootballDataset but to allow for use with a differencing model."""
+    
+    def __init__(self, stats_df, blocks_per_input, multiple_players: bool = True):
+        """
+        Initializes a DifferencedFootballDataset over the given stats_df, storing 
+        differenced inputs and outputs in X and y_diff respectively. last_known
+        keeps track of the last known undifferenced value in the inputs, such
+        that an undifferenced prediction can be found by adding the predicted
+        difference to it. Finally, y_actual contains the actual undifferenced
+        value to predict.
+        """
+        self.rows = []
+        
+        if multiple_players:
+            
+            for _, player_df in stats_df.groupby(level="player_id"):
+                vals = player_df.values
+            
+                # Compute differences
+                diffs = np.diff(vals, axis=0) # (n_blocks - 1, n_features)
+            
+                for i in range(len(diffs) - blocks_per_input):
+                    X = diffs[i:i + blocks_per_input] # differenced input
+                    y_diff = diffs[i + blocks_per_input] # differenced target for training
+                    last_known = vals[i + blocks_per_input] # last undifferenced val for undifferencing
+                    y_actual = vals[i + blocks_per_input + 1] # actual next block for eval
+                    self.rows.append((X, y_diff, y_actual, last_known))
+        else:
+            vals = stats_df.values
+            
+            # Compute differences
+            diffs = np.diff(vals, axis=0) # (n_blocks - 1, n_features)
+            
+            for i in range(len(diffs) - blocks_per_input):
+                X = diffs[i:i + blocks_per_input] # differenced input
+                y_diff = diffs[i + blocks_per_input] # differenced target for training
+                last_known = vals[i + blocks_per_input] # last undifferenced val for undifferencing
+                y_actual = vals[i + blocks_per_input + 1] # actual next block for eval
+                self.rows.append((X, y_diff, y_actual, last_known))
+    
+    def __len__(self):
+        return len(self.rows)
+    
+    def __getitem__(self, idx):
+        X, y_diff, y_actual, last_known = self.rows[idx]
+        return (
+            torch.tensor(X, dtype=torch.float32),
+            torch.tensor(y_diff, dtype=torch.float32),
+            torch.tensor(y_actual, dtype=torch.float32),
+            torch.tensor(last_known, dtype=torch.float32)
+        )
 
 def merge_stats_df_with_transfermarkt(stats_df: pd.DataFrame, use_transfermarkt_info=True) -> pd.DataFrame:
     """

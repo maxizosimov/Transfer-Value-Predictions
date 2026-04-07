@@ -3,6 +3,7 @@ library(mvnfast) # For MVN calcs
 library(MCMCpack) # For inverse gamma sampling
 library(MLmetrics) # Contains R^2 function
 library(data.table) # For single feature one-hot encoding
+set.seed(42)
 
 # Train the model: read in real player stats and values
 
@@ -40,6 +41,15 @@ y_test <- data.matrix(test_data[,11])
 y_train <- log(y_train)
 y_test <- log(y_test)
 
+# Winsorize
+winsor_params <- read.csv(sprintf('src/data/%s_winsorize_params.csv', position))
+caps <- setNames(winsor_params$cap, winsor_params$stat)
+
+for (i in 1:7) {
+    X_train[, i] <- pmin(X_train[, i], caps[i])
+    X_test[, i] <- pmin(X_test[, i], caps[i])
+}
+
 # Scale X using min/max scaling
 
 continuous_cols <- c('goals_per_90', 'xG_per_90', 'assists_per_90', 
@@ -71,6 +81,9 @@ w_hat
 # Fit via Gibbs sampling
 
 # Define priors
+
+mean(y_train)
+
 prior_w <- matrix(c(1, # goals
                     1, # xg
                     1, # assists
@@ -82,14 +95,14 @@ prior_w <- matrix(c(1, # goals
                     -1, # age
                     0, # Ligue 1
                     0, # Bundesliga
-                    0, # PL
+                    1, # PL
                     0, # La liga
-                    0 # intercept of 0
+                    mean(y_train) # use mean of training data for intercept
                     ), ncol = 1)
 
 p <- nrow(prior_w)
 
-prior_Sigma <- diag(p)*10 # uncertain though; use big sd = 10
+prior_Sigma <- diag(p)*3 # Tighter variances for regularization 
 
 # Now need priors for sigma_y
 prior_alpha <- 1
@@ -163,7 +176,8 @@ plot(y_test, y_test_pred)
 abline(a = 0, b = 1, col = 'red', lwd = 2)
 
 sum(exp(y_test_pred) > 100000000)  # predictions over 100m
-sum(exp(y_test_pred) > 1000000000)  # predictions over 1 billion
+
+tail(test_data[exp(y_test_pred) > 100000000, ]) # Who are the outliers
 
 # Look at posterior for one player
 player_preds <- c()
@@ -171,6 +185,10 @@ for(i in 1:no_samples){
     player_preds <- c(player_preds, rnorm(n = 1, mean = t(gibbs_samples_w[i,])%*%X_test[3,], sd = sqrt(gibbs_samples_sigmay[i])))
 }
 hist(player_preds, main = "Post Pred Dist of Player")
+
+# Credible intervals
+quantile(player_preds, c(0.05, 0.95))  # 90% credible interval
+exp(quantile(player_preds, c(0.05, 0.95)))  # back to euros
 
 ############################################### What if given PREDICTED performance from LSTM?
 differenced <- 'True'
@@ -214,12 +232,14 @@ plot(y_full_test, y_full_test_pred)
 abline(a = 0, b = 1, col = 'red', lwd = 2)
 
 sum(exp(y_full_test_pred) > 100000000)  # predictions over 100m
-sum(exp(y_full_test_pred) > 1000000000)  # predictions over 1 billion
-
 
 # Look at posterior for one player
 player_preds <- c()
 for(i in 1:no_samples){
-    player_preds <- c(player_preds, rnorm(n = 1, mean = t(gibbs_samples_w[i,])%*%X_full_test[1,], sd = sqrt(gibbs_samples_sigmay[i])))
+    player_preds <- c(player_preds, (rnorm(n = 1, mean = t(gibbs_samples_w[i,])%*%X_full_test[1,], sd = sqrt(gibbs_samples_sigmay[i]))))
 }
 hist(player_preds, main = "Post Pred Dist of Player")
+
+# Credible intervals
+quantile(player_preds, c(0.05, 0.95))  # 90% credible interval
+exp(quantile(player_preds, c(0.05, 0.95)))  # back to euros

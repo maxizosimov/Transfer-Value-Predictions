@@ -41,6 +41,21 @@ y_train <- log(y_train)
 y_test <- log(y_test)
 
 # Scale X using min/max scaling
+
+continuous_cols <- c('goals_per_90', 'xG_per_90', 'assists_per_90', 
+                     'xA_per_90', 'key_passes_per_90', 'xGChain_per_90',
+                     'xGBuildup_per_90', 'age', 'year')
+
+# Store min/max from training
+col_mins <- apply(X_train[, continuous_cols], 2, min)
+col_maxs <- apply(X_train[, continuous_cols], 2, max)
+
+for (col in continuous_cols) {
+    X_train[, col] <- (X_train[, col] - col_mins[col]) / (col_maxs[col] - col_mins[col])
+    X_test[, col] <- (X_test[, col] - col_mins[col]) / (col_maxs[col] - col_mins[col])
+}
+
+
 X_train <- apply(X_train, MARGIN = 2, function(x) rescale(x, to = c(0, 1)))
 X_test <- apply(X_test, MARGIN = 2, function(x) rescale(x, to = c(0, 1)))
 
@@ -64,7 +79,7 @@ prior_w <- matrix(c(1, # goals
                     1, # xgchain
                     1, # xgbuildup
                     1, # year
-                    1, # age
+                    -1, # age
                     0, # Ligue 1
                     0, # Bundesliga
                     0, # PL
@@ -74,7 +89,7 @@ prior_w <- matrix(c(1, # goals
 
 p <- nrow(prior_w)
 
-prior_Sigma <- diag(p)*100 # uncertain though; use big sd = 10
+prior_Sigma <- diag(p)*10 # uncertain though; use big sd = 10
 
 # Now need priors for sigma_y
 prior_alpha <- 1
@@ -83,7 +98,7 @@ prior_beta <- 1
 n <- length(y_train)
 
 # Set up markov chain matrices
-no_samples <- 100
+no_samples <- 1000
 gibbs_samples_w <- matrix(0, nrow = no_samples, ncol = p)
 gibbs_samples_sigmay <- matrix(0, nrow = no_samples, ncol = 1)
 
@@ -150,8 +165,17 @@ abline(a = 0, b = 1, col = 'red', lwd = 2)
 sum(exp(y_test_pred) > 100000000)  # predictions over 100m
 sum(exp(y_test_pred) > 1000000000)  # predictions over 1 billion
 
+# Look at posterior for one player
+player_preds <- c()
+for(i in 1:no_samples){
+    player_preds <- c(player_preds, rnorm(n = 1, mean = t(gibbs_samples_w[i,])%*%X_test[3,], sd = sqrt(gibbs_samples_sigmay[i])))
+}
+hist(player_preds, main = "Post Pred Dist of Player")
+
 ############################################### What if given PREDICTED performance from LSTM?
-full_test_data <- read.csv(sprintf("src/data/%s_predictions_real_values.csv", position))
+differenced <- 'True'
+
+full_test_data <- read.csv(sprintf("src/data/%s_differenced_set_%s_predictions_real_values.csv", position, differenced))
 head(full_test_data)
 
 full_test_data$league <- factor(full_test_data$league, levels = league_levels)
@@ -170,11 +194,12 @@ y_full_test <- data.matrix(full_test_data[,11])
 y_full_test <- log(y_full_test)
 
 # Scale X using min/max scaling
-X_full_test <- apply(X_full_test, MARGIN = 2, function(x) rescale(x, to = c(0, 1)))
+for (col in continuous_cols) {
+    X_full_test[, col] <- (X_full_test[, col] - col_mins[col]) / (col_maxs[col] - col_mins[col])
+}
 
 # Add bias column to X
 X_full_test <- cbind(X_full_test, bias = 1)
-
 
 
 # Make predictions
@@ -190,3 +215,11 @@ abline(a = 0, b = 1, col = 'red', lwd = 2)
 
 sum(exp(y_full_test_pred) > 100000000)  # predictions over 100m
 sum(exp(y_full_test_pred) > 1000000000)  # predictions over 1 billion
+
+
+# Look at posterior for one player
+player_preds <- c()
+for(i in 1:no_samples){
+    player_preds <- c(player_preds, rnorm(n = 1, mean = t(gibbs_samples_w[i,])%*%X_full_test[1,], sd = sqrt(gibbs_samples_sigmay[i])))
+}
+hist(player_preds, main = "Post Pred Dist of Player")

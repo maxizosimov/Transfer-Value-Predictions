@@ -69,7 +69,7 @@ class FootballLSTM(nn.Module):
         for epoch in range(n_epochs):
             self.train()
             train_loss = 0
-            for X_batch, y_batch in train_dataloader:
+            for X_batch, y_batch, _ in train_dataloader:
                 # to be able to run on GPU
                 X_batch = X_batch.to(device)
                 y_batch = y_batch.to(device)
@@ -86,7 +86,7 @@ class FootballLSTM(nn.Module):
             if epoch % test_every == 0:
                 test_loss = 0
                 with torch.no_grad():
-                    for X_batch, y_batch in test_dataloader:
+                    for X_batch, y_batch, _ in test_dataloader:
                         # to be able to run on GPU
                         X_batch = X_batch.to(device)
                         y_batch = y_batch.to(device)
@@ -98,17 +98,20 @@ class FootballLSTM(nn.Module):
             test_losses.append(test_loss / len(test_dataloader))
             
         return train_losses, test_losses
-    
+
     @torch.no_grad()
-    def eval_model(self, test_dataloader):
+    def get_test_preds(self, test_dataloader):
         """
-        Evaluates model performance on the given test dataloader, printing
-        the RMSE and MAE as well as returning them for comparison.
+        Produces torch tensors for all true and predicted outputs, each of shape
+        (test_size, n_features). Also returns the look-ahead values for each
+        output.
         """
+        self.eval()
         y_preds = [] # (n_batches, batch_size, n_features)
         y_trues = [] # (n_batches, batch_size, n_features)
+        lookaheads = [] 
         
-        for X_batch, y_batch in test_dataloader:
+        for X_batch, y_batch, lookahead_batch in test_dataloader:
             # to be able to run on GPU
             X_batch = X_batch.to(device)
             y_batch = y_batch.to(device)
@@ -116,14 +119,52 @@ class FootballLSTM(nn.Module):
             
             y_preds.append(outputs)
             y_trues.append(y_batch)
+            lookaheads.append(lookahead_batch)
             
-        y_preds = torch.cat(y_preds).detach().cpu().numpy()
-        y_trues = torch.cat(y_trues).detach().cpu().numpy()
+        y_preds = torch.cat(y_preds).detach().cpu().numpy() # (test_size, n_features)
+        y_trues = torch.cat(y_trues).detach().cpu().numpy() # (test_size, n_features)
+        lookaheads = torch.cat(lookaheads).detach().cpu().numpy()
+        
+        return y_trues, y_preds, lookaheads
+    
+    @torch.no_grad()
+    def look_ahead_errors(self, test_dataloader):
+        """
+        Produces the RMSE per number of blocks into the future.
+        """
+        y_trues, y_preds, lookaheads = self.get_test_preds(test_dataloader)
+        
+        results = {}
+        for step in np.unique(lookaheads):
+            mask = lookaheads == step
+            rmse = mean_absolute_error(y_trues[mask], y_preds[mask])
+            results[step] = rmse
 
-        rmse = root_mean_squared_error(y_trues, y_preds)
-        mae = mean_absolute_error(y_trues, y_preds)
+        return results
+    
+    @torch.no_grad()
+    def eval_model(self, test_dataloader):
+        """
+        Evaluates model performance on the given test dataloader, returning
+        a dict containing the overall RMSE and MAE at key 'Overall', as
+        well as the individual columns, 0-indexed.
+        """
+        y_trues, y_preds, _ = self.get_test_preds(test_dataloader)
+ 
+        results_dict = {}
+        
+        for i in range(y_preds.shape[1]):
+            results_dict[i] = (
+                root_mean_squared_error(y_trues[:,i], y_preds[:,i]),
+                mean_absolute_error(y_trues[:,i], y_preds[:,i])
+            )
 
-        return rmse, mae
+        results_dict["Overall"] = (
+            root_mean_squared_error(y_trues, y_preds),
+            mean_absolute_error(y_trues, y_preds)
+        )
+
+        return results_dict
         
     @torch.no_grad()
     def eval_model_on_player(self, player_stats_df: pd.DataFrame, blocks_per_input: int=10):
@@ -135,6 +176,7 @@ class FootballLSTM(nn.Module):
         Also prints RMSE and MAE for the combined metrics, and for each metric
         by itself.
         """
+        self.eval()
         x = torch.tensor(player_stats_df.values[:blocks_per_input], dtype=torch.float32)
         
         # Have to unsqueeze to add batch dimension
@@ -185,7 +227,7 @@ class DifferencingFootballLSTM(FootballLSTM):
     Differencing is done to avoid upward drift.
     """
         
-    # Forward and training should be unchanged
+    # Forward and init should be unchanged
     
     @torch.no_grad()
     def predict_next_k(self, x, k: int, last_known: torch.Tensor):
@@ -198,11 +240,13 @@ class DifferencingFootballLSTM(FootballLSTM):
         
         Output will have shape (batch_size, k, n_features) in original (undifferenced) scale
         """
-        diff_predictions = super().predict_next_k(x, k)  # (batch_size, k, n_features)
+        # Just predict diffs and convert
+        diff_predictions = super().predict_next_k(x, k) # (batch_size, k, n_features)
         
         predictions = []
-        cur = last_known  # (batch_size, n_features)
+        cur = last_known # (batch_size, n_features)
         
+        # Get undifferenced vals
         for i in range(k):
             cur = cur + diff_predictions[:, i, :]
             predictions.append(cur)
@@ -220,7 +264,7 @@ class DifferencingFootballLSTM(FootballLSTM):
         for epoch in range(n_epochs):
             self.train()
             train_loss = 0
-            for X_batch, y_diff_batch, _, _ in train_dataloader:
+            for X_batch, y_diff_batch, _, _, _ in train_dataloader:
                 X_batch = X_batch.to(device)
                 y_diff_batch = y_diff_batch.to(device)
                 
@@ -239,7 +283,7 @@ class DifferencingFootballLSTM(FootballLSTM):
                 self.eval()
                 test_loss = 0
                 with torch.no_grad():
-                    for X_batch, y_diff_batch, _, _ in test_dataloader:
+                    for X_batch, y_diff_batch, _, _, _ in test_dataloader:
                         X_batch = X_batch.to(device)
                         y_diff_batch = y_diff_batch.to(device)
                         outputs = self(X_batch)
@@ -250,6 +294,49 @@ class DifferencingFootballLSTM(FootballLSTM):
         return train_losses, test_losses
     
     @torch.no_grad()
+    def look_ahead_errors(self, test_dataloader):
+        """
+        Produces the RMSE per number of blocks into the future.
+        """
+        y_trues, y_preds, lookaheads = self.get_test_preds(test_dataloader)
+        
+        results = {}
+        for step in np.unique(lookaheads):
+            mask = lookaheads == step
+            rmse = mean_absolute_error(y_trues[mask], y_preds[mask])
+            results[step] = rmse
+
+        return results
+    
+    @torch.no_grad()
+    def get_test_preds(self, test_dataloader):
+        """
+        Produces torch tensors for all true and predicted outputs, each of shape
+        (test_size, n_features).
+        """
+        self.eval()
+        y_preds = []
+        y_trues = []
+        lookaheads = [] 
+        
+        for X_batch, _, y_actual_batch, last_known_batch, lookahead_batch in test_dataloader:
+            X_batch = X_batch.to(device)
+            last_known_batch = last_known_batch.to(device)
+            
+            diff_pred = super().forward(X_batch) # Predict diff
+            actual_pred = last_known_batch + diff_pred # Then add to known val to get predicted val
+            
+            y_preds.append(actual_pred)
+            y_trues.append(y_actual_batch)
+            lookaheads.append(lookahead_batch)
+            
+        y_preds = torch.cat(y_preds).detach().cpu().numpy() # (test_size, n_features)
+        y_trues = torch.cat(y_trues).detach().cpu().numpy() # (test_size, n_features)
+        lookaheads = torch.cat(lookaheads).detach().cpu().numpy()
+        
+        return y_trues, y_preds, lookaheads
+    
+    @torch.no_grad()
     def eval_model(self, test_dataloader):
         """
         Evaluates model performance on the given test dataloader in the
@@ -257,27 +344,22 @@ class DifferencingFootballLSTM(FootballLSTM):
         
         Note test dataloader must come from the DifferencedFootballDataset
         """
-        self.eval()
-        y_preds = []
-        y_trues = []
+        y_trues, y_preds, _ = self.get_test_preds(test_dataloader)
+            
+        results_dict = {}
         
-        for X_batch, _, y_actual_batch, last_known_batch in test_dataloader:
-            X_batch = X_batch.to(device)
-            last_known_batch = last_known_batch.to(device)
-            
-            diff_pred = super().forward(X_batch)
-            actual_pred = last_known_batch + diff_pred
-            
-            y_preds.append(actual_pred)
-            y_trues.append(y_actual_batch)
-            
-        y_preds = torch.cat(y_preds).detach().cpu().numpy()
-        y_trues = torch.cat(y_trues).detach().cpu().numpy()
+        for i in range(y_preds.shape[1]):
+            results_dict[i] = (
+                root_mean_squared_error(y_trues[:,i], y_preds[:,i]),
+                mean_absolute_error(y_trues[:,i], y_preds[:,i])
+            )
 
-        rmse = root_mean_squared_error(y_trues, y_preds)
-        mae = mean_absolute_error(y_trues, y_preds)
+        results_dict["Overall"] = (
+            root_mean_squared_error(y_trues, y_preds),
+            mean_absolute_error(y_trues, y_preds)
+        )
 
-        return rmse, mae
+        return results_dict
     
     @torch.no_grad()
     def eval_model_on_player(self, player_stats_df: pd.DataFrame, blocks_per_input: int=10):
@@ -293,10 +375,10 @@ class DifferencingFootballLSTM(FootballLSTM):
         x = torch.tensor(diff_values[:blocks_per_input], dtype=torch.float32)
         x = x.unsqueeze(0).to(device)
 
-        # Last known absolute value before predictions start
+        # Last known val before predictions start
         last_known = torch.tensor(player_stats_df.values[blocks_per_input], dtype=torch.float32).unsqueeze(0).to(device)
 
-        # Actual values in original scale
+        # Actual vals in original scale
         y_trues = torch.tensor(player_stats_df.values[blocks_per_input + 1:], dtype=torch.float32).to(device)
 
         n_pred = len(player_stats_df) - blocks_per_input - 1

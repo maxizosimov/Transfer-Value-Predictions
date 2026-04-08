@@ -31,11 +31,11 @@ train_data <- cbind(train_data[, -4], train_league_cols)
 test_data <- cbind(test_data[, -4], test_league_cols)
 
 # Get train/test matrices
-X_train <- data.matrix(train_data[,-c(1,2,3,11)])
-y_train <- data.matrix(train_data[,11])
+X_train <- data.matrix(train_data[,-c(1,2,3,9)])
+y_train <- data.matrix(train_data[9])
 
-X_test <- data.matrix(test_data[,-c(1,2,3,11)])
-y_test <- data.matrix(test_data[,11])
+X_test <- data.matrix(test_data[,-c(1,2,3,9)])
+y_test <- data.matrix(test_data[,9])
 
 # Log-transform y
 y_train <- log(y_train)
@@ -45,14 +45,14 @@ y_test <- log(y_test)
 winsor_params <- read.csv(sprintf('src/data/%s_winsorize_params.csv', position))
 caps <- setNames(winsor_params$cap, winsor_params$stat)
 
-for (i in 1:7) {
+for (i in 1:5) {
     X_train[, i] <- pmin(X_train[, i], caps[i])
     X_test[, i] <- pmin(X_test[, i], caps[i])
 }
 
 # Scale X using min/max scaling
 
-continuous_cols <- c('goals_per_90', 'xG_per_90', 'assists_per_90', 
+continuous_cols <- c('xG_per_90',
                      'xA_per_90', 'key_passes_per_90', 'xGChain_per_90',
                      'xGBuildup_per_90', 'age', 'year')
 
@@ -84,9 +84,7 @@ w_hat
 
 mean(y_train)
 
-prior_w <- matrix(c(1, # goals
-                    1, # xg
-                    1, # assists
+prior_w <- matrix(c(1, # xg
                     1, # xa
                     1, # key passes
                     1, # xgchain
@@ -140,8 +138,12 @@ for(i in 1:no_samples){
 
 # check convergence and mixing of weights
 head(gibbs_samples_w)
-plot(gibbs_samples_w[,1], type = "l") # change the index to examine the weights
-acf(gibbs_samples_w[,1]) # change the index to examine the weights
+for (i in 1:p) {
+    plot(gibbs_samples_w[,i], type = "l")
+    acf(gibbs_samples_w[,i])
+}
+
+ # change the index to examine the weights
 
 # check convergence and mixing of variance term
 head(gibbs_samples_sigmay)
@@ -205,8 +207,8 @@ ft_league_cols <- model.matrix(~ league - 1, data = full_test_data)[, -1]
 full_test_data <- cbind(full_test_data[, -4], ft_league_cols)
 
 # Get matrices
-X_full_test <- data.matrix(full_test_data[,-c(1,2,3,11)])
-y_full_test <- data.matrix(full_test_data[,11])
+X_full_test <- data.matrix(full_test_data[,-c(1,2,3,9)])
+y_full_test <- data.matrix(full_test_data[,9])
 
 # Log-transform y
 y_full_test <- log(y_full_test)

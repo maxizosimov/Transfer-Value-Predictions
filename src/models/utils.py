@@ -3,6 +3,7 @@ import os
 import torch
 import torch.nn as nn
 from matplotlib import pyplot as plt
+import numpy as np
 import pandas as pd
 from tqdm.notebook import tqdm # Use tqdm.notebook for cleaner outputs in notebooks.
  
@@ -16,6 +17,7 @@ if target_dir not in sys.path:
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
 from football_lstm import FootballLSTM, DifferencingFootballLSTM
+from preprocess import merge_stats_df_with_transfermarkt
 
 # hypertuning of LSTM - differeced or not
 def hyperparam_tuning(params: dict, stats_df: pd.DataFrame, train_dataloader: torch.utils.data.DataLoader, 
@@ -55,7 +57,7 @@ def hyperparam_tuning(params: dict, stats_df: pd.DataFrame, train_dataloader: to
                         )
 
                         # model evaluation
-                        rmse, mae = model.eval_model(test_dataloader)
+                        rmse = model.eval_model(test_dataloader)["Overall"][0]
 
                         # evaluating if better setup, if so save
                         if previous_best is None or rmse < previous_best:
@@ -83,3 +85,99 @@ def hyperparam_tuning(params: dict, stats_df: pd.DataFrame, train_dataloader: to
     plt.close()
         
     return param_dict
+
+def get_actuals_vs_predictions_df(stats_df: pd.DataFrame, model: nn.Module, blocks_per_input: int, differencing: bool=False, max_look_ahead: int = None):
+    """
+    For the given stats_df, uses the given model to make predictions for each
+    player, before joining that prediction data with real Transfermarkt values.
+    This provides actual/prediction pairs to help evaluate the Bayesian model.
+    
+    max_look_ahead is uses to control how many blocks ahead to predict per player.
+    If none, predicts as many blocks as the player has.
+    """
+    if max_look_ahead is None:
+        max_look_ahead = float('inf')
+    
+    # can't assume we know the dates so predict them too
+    def get_k_future_dates(player_df, k):
+        # Get the dates of existing blocks
+        block_dates = player_df.index.get_level_values('date')
+    
+        # Calculate average time between consecutive blocks
+        deltas = pd.Series(block_dates).diff().dropna()
+        avg_delta = deltas.mean()
+    
+        # Project forward from last known date
+        last_date = block_dates[-1]
+        future_dates = [last_date + avg_delta * i for i in range(1, k + 1)]
+    
+        return future_dates
+    
+    ids = []
+    names = []
+    dates = []
+    leagues = []
+    preds = []
+    
+    # Over each player
+    for (id, name), player_df in stats_df.groupby(["player_id", "player_name"]):
+        vals = player_df.values
+        
+        if differencing:
+            if len(vals) <= blocks_per_input + 1: # Nothing to predict
+                continue
+            # Difference the series
+            diff_vals = np.diff(vals, axis=0)  # (n_blocks - 1, n_features)
+            
+            x = torch.tensor(diff_vals[:blocks_per_input], dtype=torch.float32).unsqueeze(0)
+        
+            # Last known absolute value for undifferencing
+            last_known = torch.tensor(vals[blocks_per_input], dtype=torch.float32).unsqueeze(0)
+            
+            remaining_games = len(vals) - blocks_per_input - 1  # -1 since last_known uses one block
+            
+            player_preds = model.predict_next_k(x, k=min(remaining_games, max_look_ahead),
+                                                last_known=last_known).squeeze(0).detach().cpu().numpy()
+            
+        else:
+            if len(vals) <= blocks_per_input:
+                continue
+            x = torch.tensor(vals[:blocks_per_input], dtype=torch.float32).unsqueeze(0)
+            remaining_games = len(vals) - blocks_per_input
+            player_preds = model.predict_next_k(x, k=min(remaining_games, max_look_ahead)).squeeze(0).detach().cpu().numpy()
+        
+        preds.append(player_preds)
+        ids.extend([id] * remaining_games)
+        names.extend([name] * remaining_games)
+        dates.extend(get_k_future_dates(player_df.iloc[:blocks_per_input], remaining_games))
+        leagues.extend([player_df.index.get_level_values('league')[blocks_per_input]] * remaining_games) 
+        
+    preds = np.concatenate(preds)
+    
+    # Turn into a df
+    preds_df = pd.DataFrame(preds)
+    # Add id and name columns
+    preds_df.insert(0, 'player_id', ids)
+    preds_df.insert(1, 'player_name', names)
+    preds_df.insert(2, 'date', dates)
+    preds_df.insert(3, 'league', leagues)
+
+    # Rename other columns
+    stats_cols = stats_df.columns
+    
+    preds_df = preds_df.rename(columns={i: stats_cols[i] for i in range(len(stats_cols))})
+    
+    #print(preds_df)
+    
+    # Pull transfer value data and merge
+    preds_df_combined = merge_stats_df_with_transfermarkt(preds_df, False)
+    
+    # Add age and year (fractional columns
+    preds_df_combined["age"] = (preds_df_combined["date"] - preds_df_combined["date_of_birth"]).dt.days  / 365.25 # .25 accounts for leap years
+
+    preds_df_combined["year"] = preds_df_combined["date"].dt.year + (preds_df_combined["date"].dt.day_of_year / 365.25)
+    
+    # Get rid of DOB column
+    preds_df_combined = preds_df_combined.drop("date_of_birth", axis=1)
+    
+    return preds_df_combined

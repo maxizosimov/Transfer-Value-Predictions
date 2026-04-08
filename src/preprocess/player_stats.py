@@ -33,8 +33,11 @@ def get_player_stats_df_from_info(games_per_block: int,
                                   player_info: Dict,
                                   stats: List[str]):
     """
-    Produces player per-90 stats but on the given info dict, not using understat
-    at all. Also includes date and league info.
+    For the given dict of player info, produces a pandas dataframe for the
+    given stats, which are aggregated into windows of size games_per_block.
+    
+    DF includes additional info including player_id, player_name, date, and
+    league.
     """
     #print(player_info)
     
@@ -93,8 +96,8 @@ def get_position_players_stats_df(understat: UnderstatClient, positions: List[st
                                   seasons: List[str] = [2025]) -> pd.DataFrame:
     """
     Produces a dataframe of all players for the given position, leagues, and seasons
-    with aggregate per-90 stats, for every block of games_per_block games played by each of the given
-    player_ids, for any club or season played. Indexes by player_id and date.
+    with aggregate per-90 stats, for every block of games_per_block games played.
+    Indexes by player_id, player_name and date.
     """
     
     player_info_map = defaultdict(list)
@@ -139,7 +142,7 @@ def get_position_players_stats_df(understat: UnderstatClient, positions: List[st
                                 with open(filepath, 'a') as f:
                                     f.write(json.dumps(player_info) + '\n')
                 
-                except Exception as e: # 
+                except Exception as e: # Understat seems to have a number of invalid matches, each with their own errors.
                     print(f"Caught error {e}, skipping match.")
                     skipped_matches += 1
     
@@ -152,18 +155,21 @@ def get_position_players_stats_df(understat: UnderstatClient, positions: List[st
             for line in f:
                 player_info.append(json.loads(line))
     
+        # Get into windows
         stats_df = get_player_stats_df_from_info(games_per_block, player_info, stats)
     
         if not stats_df.empty:
             player_id = filename.replace('.jsonl', '')
             stats_df.to_parquet(f"{dir_name}/{player_id}.parquet")
     
+        # freee up memory
         del player_info
         del stats_df
 
     # Combine all parquet files at the end
     result = pd.concat([pd.read_parquet(f) for f in glob.glob(f"{dir_name}/*.parquet")])
 
+    # get rid of temp dir
     shutil.rmtree(dir_name)
     return result
 
@@ -179,8 +185,9 @@ class CustomFootballDataset(Dataset):
     def __init__(self, stats_df: pd.DataFrame, blocks_per_input: int = 10, multiple_players: bool = True):
         """
         Initializes a CustomFootballDataset over the given stats_df, storing model
-        inputs and outputs in X and y respectively. Each value in X provides
-        a 2d array of stats for the last blocks_per_input game blocks, while each value
+        inputs, outputs, and number of blocks ahead for the player in X, y, and
+        look_ahead respectively. Each value in X provides
+        a 2d array of stats for the last blocks_per_input game blocks, each value
         in y provides stats for the current game to predict with the matching
         X values.
         """
@@ -188,6 +195,7 @@ class CustomFootballDataset(Dataset):
         
         self.X = []
         self.y = []
+        self.look_ahead = []
         
         if multiple_players:   
             # Break down by player
@@ -196,18 +204,20 @@ class CustomFootballDataset(Dataset):
                 for i in range(len(vals) - blocks_per_input):
                     self.X.append(vals[i:i + blocks_per_input])
                     self.y.append(vals[i + blocks_per_input])
+                    self.look_ahead.append(i+1)
                     
         else:
             vals = stats_df.values
             for i in range(len(vals) - blocks_per_input):
                 self.X.append(vals[i:i + blocks_per_input])
                 self.y.append(vals[i + blocks_per_input])
+                self.look_ahead.append(i+1)
 
     def __len__(self):
         return len(self.X)
 
     def __getitem__(self, idx):
-        return torch.tensor(self.X[idx], dtype=torch.float32), torch.tensor(self.y[idx], dtype=torch.float32)
+        return torch.tensor(self.X[idx], dtype=torch.float32), torch.tensor(self.y[idx], dtype=torch.float32), torch.tensor(self.look_ahead[idx], dtype=torch.float32)
     
 class DifferencedFootballDataset(Dataset):
     """Version of CustomFootballDataset but to allow for use with a differencing model."""
@@ -218,14 +228,15 @@ class DifferencedFootballDataset(Dataset):
         differenced inputs and outputs in X and y_diff respectively. last_known
         keeps track of the last known undifferenced value in the inputs, such
         that an undifferenced prediction can be found by adding the predicted
-        difference to it. Finally, y_actual contains the actual undifferenced
-        value to predict.
+        difference to it. y_actual contains the actual undifferenced
+        value to predict. look_ahead contains the number of games looking ahead
+        for the player.
         """
         self.rows = []
         
         if multiple_players:
-            
-            for _, player_df in stats_df.groupby(level="player_id"):
+            # Break down by player
+            for _, player_df in stats_df.groupby("player_id"):
                 vals = player_df.values
             
                 # Compute differences
@@ -236,7 +247,7 @@ class DifferencedFootballDataset(Dataset):
                     y_diff = diffs[i + blocks_per_input] # differenced target for training
                     last_known = vals[i + blocks_per_input] # last undifferenced val for undifferencing
                     y_actual = vals[i + blocks_per_input + 1] # actual next block for eval
-                    self.rows.append((X, y_diff, y_actual, last_known))
+                    self.rows.append((X, y_diff, y_actual, last_known, i+1))
         else:
             vals = stats_df.values
             
@@ -248,26 +259,30 @@ class DifferencedFootballDataset(Dataset):
                 y_diff = diffs[i + blocks_per_input] # differenced target for training
                 last_known = vals[i + blocks_per_input] # last undifferenced val for undifferencing
                 y_actual = vals[i + blocks_per_input + 1] # actual next block for eval
-                self.rows.append((X, y_diff, y_actual, last_known))
+                self.rows.append((X, y_diff, y_actual, last_known, i+1))
     
     def __len__(self):
         return len(self.rows)
     
     def __getitem__(self, idx):
-        X, y_diff, y_actual, last_known = self.rows[idx]
+        X, y_diff, y_actual, last_known, look_ahead = self.rows[idx]
         return (
             torch.tensor(X, dtype=torch.float32),
             torch.tensor(y_diff, dtype=torch.float32),
             torch.tensor(y_actual, dtype=torch.float32),
-            torch.tensor(last_known, dtype=torch.float32)
+            torch.tensor(last_known, dtype=torch.float32),
+            torch.tensor(look_ahead, dtype=torch.float32),
         )
 
 def merge_stats_df_with_transfermarkt(stats_df: pd.DataFrame, use_transfermarkt_info=True) -> pd.DataFrame:
     """
     For the given stats_df, merges it with pulled transfermarkt data to include
     additional features like DOB and real market value.
+    
+    use_transfermarkt_info controls whether to use Transfermarkt's league and
+    date info, or what is in stats_df.
     """
-    # Change date dtype
+    # Change date dtype for consistency in merge_asof func
     stats_df["date"] = stats_df['date'].astype('datetime64[us]')
     
     # Sort by date
@@ -289,6 +304,7 @@ def merge_stats_df_with_transfermarkt(stats_df: pd.DataFrame, use_transfermarkt_
     
     if use_transfermarkt_info:
         stats_df = stats_df.drop("league",axis=1)
+        # Map to Understat's league names for consistency
         transfer_df["league"] = transfer_df["league"].map({
             "GB1":"EPL",
             "ES1":"La_Liga",
@@ -314,7 +330,10 @@ def merge_stats_df_with_transfermarkt(stats_df: pd.DataFrame, use_transfermarkt_
     # Drop those with nas
     stats_df_combined = stats_df_combined.dropna()
     
+    #per_90
+    stats_cols = list(filter(lambda s: s[-6:]=="per_90", stats_df.columns))
+    
     # Rearrange columns
-    stats_df_combined = stats_df_combined[["player_id","player_name","date","date_of_birth","league", "goals_per_90","xG_per_90","assists_per_90","xA_per_90","key_passes_per_90","xGChain_per_90","xGBuildup_per_90","value"]]
+    stats_df_combined = stats_df_combined[["player_id","player_name","date","date_of_birth","league"] + stats_cols + ["value"]]
     
     return stats_df_combined

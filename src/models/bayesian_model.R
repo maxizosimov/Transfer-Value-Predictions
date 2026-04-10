@@ -3,13 +3,13 @@ library(mvnfast) # For MVN calcs
 library(MCMCpack) # For inverse gamma sampling
 library(MLmetrics) # Contains R^2 function
 library(data.table) # For single feature one-hot encoding
-set.seed(42)
+set.seed(42) # for reproducibility
 
 # Train the model: read in real player stats and values
 
 position <- 'M'
 
-# Get real data
+# Get real data - train/test split already
 train_data <- read.csv(sprintf("src/data/%s_stats_values_train.csv", position))
 test_data <- read.csv(sprintf("src/data/%s_stats_values_test.csv", position))
 head(train_data)
@@ -26,16 +26,20 @@ test_data$league <- factor(test_data$league, levels = league_levels)
 train_league_cols <- model.matrix(~ league - 1, data = train_data)[, -1]
 test_league_cols <- model.matrix(~ league - 1, data = test_data)[, -1]
 
-# Combine
-train_data <- cbind(train_data[, -4], train_league_cols)
-test_data <- cbind(test_data[, -4], test_league_cols)
+# Drop the original league column and add one-hot encoded version
+train_data <- cbind(train_data[, names(train_data) != "league"], train_league_cols)
+test_data  <- cbind(test_data[,  names(test_data)  != "league"], test_league_cols)
 
 # Get train/test matrices
-X_train <- data.matrix(train_data[,-c(1,2,3,9)])
-y_train <- data.matrix(train_data[9])
 
-X_test <- data.matrix(test_data[,-c(1,2,3,9)])
-y_test <- data.matrix(test_data[,9])
+# Use these rather than indexing
+drop_cols <- c("player_id", "player_name", "date", "value")
+
+X_train <- data.matrix(train_data[, !names(train_data) %in% drop_cols])
+y_train <- data.matrix(train_data[, "value"])
+
+X_test <- data.matrix(test_data[,!names(test_data) %in% drop_cols])
+y_test <- data.matrix(test_data[,"value"])
 
 # Log-transform y
 y_train <- log(y_train)
@@ -43,18 +47,19 @@ y_test <- log(y_test)
 
 # Winsorize
 winsor_params <- read.csv(sprintf('src/data/%s_winsorize_params.csv', position))
-caps <- setNames(winsor_params$cap, winsor_params$stat)
 
-for (i in 1:5) {
-    X_train[, i] <- pmin(X_train[, i], caps[i])
-    X_test[, i] <- pmin(X_test[, i], caps[i])
+for (i in 1:3) {
+    X_train[, i] <- pmin(X_train[, i], winsor_params[,2][i])
+    X_test[, i] <- pmin(X_test[, i], winsor_params[,2][i])
 }
 
 # Scale X using min/max scaling
 
 continuous_cols <- c('xG_per_90',
-                     'xA_per_90', 'key_passes_per_90', 'xGChain_per_90',
-                     'xGBuildup_per_90', 'age', 'year')
+                     'xA_per_90',
+                     'xGChain_per_90',
+                     'age',
+                     'year')
 
 # Store min/max from training
 col_mins <- apply(X_train[, continuous_cols], 2, min)
@@ -64,10 +69,6 @@ for (col in continuous_cols) {
     X_train[, col] <- (X_train[, col] - col_mins[col]) / (col_maxs[col] - col_mins[col])
     X_test[, col] <- (X_test[, col] - col_mins[col]) / (col_maxs[col] - col_mins[col])
 }
-
-
-X_train <- apply(X_train, MARGIN = 2, function(x) rescale(x, to = c(0, 1)))
-X_test <- apply(X_test, MARGIN = 2, function(x) rescale(x, to = c(0, 1)))
 
 # Add bias column to X
 X_train <- cbind(X_train, bias = 1)
@@ -82,25 +83,30 @@ w_hat
 
 # Define priors
 
-mean(y_train)
+cor(X_train,y_train)
+
+# To guide choice of intercept, which when everything else is 0 should reflect
+# value for a young player from an early year with poor performance
+(train_data[train_data$age < 21
+                & train_data$year < 2015,])
+
+# About 2 million for Lenny Nangis
 
 prior_w <- matrix(c(1, # xg
                     1, # xa
-                    1, # key passes
                     1, # xgchain
-                    1, # xgbuildup
-                    1, # year
-                    -1, # age
+                    0.3, # year - small positive
+                    -2, # age - strong negative
+                    0, # Serie A
                     0, # Ligue 1
-                    0, # Bundesliga
                     1, # PL
                     0, # La liga
-                    mean(y_train) # use mean of training data for intercept
+                    log(2000000) # intercept - when everything else is 0 (min stats + Bundesliga)
                     ), ncol = 1)
 
 p <- nrow(prior_w)
 
-prior_Sigma <- diag(p)*3 # Tighter variances for regularization 
+prior_Sigma <- diag(p)*1
 
 # Now need priors for sigma_y
 prior_alpha <- 1

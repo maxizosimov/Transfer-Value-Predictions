@@ -22,20 +22,16 @@ run_position_model <- function(position, prior_w, prior_Sigma, prior_alpha, prio
     train_data <- res$train_data
     test_data <- res$test_data
     
-    # Add squared age col
-    train_data$age_log <- log(train_data$age)
-    test_data$age_log <- log(test_data$age)
-    
     # Get train/test matrices
     
     # Use these rather than indexing
     continuous_cols <- c('xG_per_90',
                          'xA_per_90',
                          'xGChain_per_90',
-                         'age_log',
+                         'age',
                          'year')
     
-    drop_cols <- c("player_id", "player_name","age", "date", "value")
+    drop_cols <- c("player_id", "player_name","date", "value")
     
     # Store min/max from training
     col_mins <- apply(train_data[, continuous_cols], 2, min)
@@ -70,8 +66,8 @@ evaluate_position_model <- function(position, res, player_name, real_ylim, lstm_
     gibbs_samples_w <- res$gibbs_samples_w
     gibbs_samples_sigmay <- res$gibbs_samples_sigmay
     
-    continuous_cols <- c('xG_per_90', 'xA_per_90', 'xGChain_per_90', 'age_log', 'year')
-    drop_cols <- c("player_id", "player_name", "age", "date", "value")
+    continuous_cols <- c('xG_per_90', 'xA_per_90', 'xGChain_per_90', 'age', 'year')
+    drop_cols <- c("player_id", "player_name", "date", "value")
     league_levels <- c("Bundesliga", "Serie_A", "Ligue_1", "La_Liga", "EPL")
     
     # check convergence and mixing of weights
@@ -120,8 +116,6 @@ evaluate_position_model <- function(position, res, player_name, real_ylim, lstm_
     full_test_data <- read.csv(sprintf("src/data/%s_predictions_real_values.csv",
                                        position))
     full_test_data <- one_hot_encode_league(full_test_data, league_levels)
-    
-    full_test_data$age_log <- log(full_test_data$age)
     
     col_mins <- res$col_mins
     col_maxs <- res$col_maxs

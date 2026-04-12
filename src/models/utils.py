@@ -16,12 +16,12 @@ if target_dir not in sys.path:
 # have GPU available to speed up
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-from football_lstm import FootballLSTM, DifferencingFootballLSTM
+from football_lstm import FootballLSTM
 from preprocess import merge_stats_df_with_transfermarkt
 
-# hypertuning of LSTM - differeced or not
+# hypertuning of LSTM 
 def hyperparam_tuning(params: dict, stats_df: pd.DataFrame, train_dataloader: torch.utils.data.DataLoader, 
-                          test_dataloader: torch.utils.data.DataLoader, differenced: bool=False):
+                          test_dataloader: torch.utils.data.DataLoader):
         
     best_combo = None
     previous_best = None
@@ -34,15 +34,9 @@ def hyperparam_tuning(params: dict, stats_df: pd.DataFrame, train_dataloader: to
 
                         # non-zero dropout expects num_layers greater than 1 so train with dropout set to 0
                         if layer == 1:
-                            if differenced:
-                                model = DifferencingFootballLSTM(n_features=len(stats_df.columns), hidden_size=h_size, num_layers=layer, dropout=0).to(device)
-                            else:
-                                model = FootballLSTM(n_features=len(stats_df.columns), hidden_size=h_size, num_layers=layer, dropout=0).to(device)
+                            model = FootballLSTM(n_features=len(stats_df.columns), hidden_size=h_size, num_layers=layer, dropout=0).to(device)
                         else:
-                            if differenced:
-                                model = DifferencingFootballLSTM(n_features=len(stats_df.columns), hidden_size=h_size, num_layers=layer, dropout=dropout).to(device)
-                            else:
-                                model = FootballLSTM(n_features=len(stats_df.columns), hidden_size=h_size, num_layers=layer, dropout=dropout).to(device)
+                            model = FootballLSTM(n_features=len(stats_df.columns), hidden_size=h_size, num_layers=layer, dropout=dropout).to(device)
                                 
                         loss_fn = nn.MSELoss()
                         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -86,7 +80,7 @@ def hyperparam_tuning(params: dict, stats_df: pd.DataFrame, train_dataloader: to
         
     return param_dict
 
-def get_actuals_vs_predictions_df(stats_df: pd.DataFrame, model: nn.Module, blocks_per_input: int, differencing: bool=False, max_look_ahead: int = None):
+def get_actuals_vs_predictions_df(stats_df: pd.DataFrame, model: nn.Module, blocks_per_input: int, max_look_ahead: int = None):
     """
     For the given stats_df, uses the given model to make predictions for each
     player, before joining that prediction data with real Transfermarkt values.
@@ -122,29 +116,13 @@ def get_actuals_vs_predictions_df(stats_df: pd.DataFrame, model: nn.Module, bloc
     # Over each player
     for (id, name), player_df in stats_df.groupby(["player_id", "player_name"]):
         vals = player_df.values
+
+        if len(vals) <= blocks_per_input:
+            continue
         
-        if differencing:
-            if len(vals) <= blocks_per_input + 1: # Nothing to predict
-                continue
-            # Difference the series
-            diff_vals = np.diff(vals, axis=0)  # (n_blocks - 1, n_features)
-            
-            x = torch.tensor(diff_vals[:blocks_per_input], dtype=torch.float32).unsqueeze(0)
-        
-            # Last known absolute value for undifferencing
-            last_known = torch.tensor(vals[blocks_per_input], dtype=torch.float32).unsqueeze(0)
-            
-            remaining_games = len(vals) - blocks_per_input - 1  # -1 since last_known uses one block
-            
-            player_preds = model.predict_next_k(x, k=min(remaining_games, max_look_ahead),
-                                                last_known=last_known).squeeze(0).detach().cpu().numpy()
-            
-        else:
-            if len(vals) <= blocks_per_input:
-                continue
-            x = torch.tensor(vals[:blocks_per_input], dtype=torch.float32).unsqueeze(0)
-            remaining_games = len(vals) - blocks_per_input
-            player_preds = model.predict_next_k(x, k=min(remaining_games, max_look_ahead)).squeeze(0).detach().cpu().numpy()
+        x = torch.tensor(vals[:blocks_per_input], dtype=torch.float32).unsqueeze(0)
+        remaining_games = min(len(vals) - blocks_per_input, max_look_ahead)
+        player_preds = model.predict_next_k(x, k=remaining_games).squeeze(0).detach().cpu().numpy()
         
         preds.append(player_preds)
         ids.extend([id] * remaining_games)

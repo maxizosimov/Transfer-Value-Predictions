@@ -196,13 +196,8 @@ def load_and_fit():
              for k, p in [('squad', 25), ('firstteam', 50), ('topflight', 75)]}
 
     # Midfielders
-    m_all = pd.read_csv(dp('M_stats_values.csv'))
-    m_all['league'] = m_all['league'].map(LEAGUE_MAP_M)
-    np.random.seed(42)
-    pids = m_all['player_id'].unique()
-    tr_p = np.random.choice(pids, size=int(0.8*len(pids)), replace=False)
-    m_tr = m_all[m_all['player_id'].isin(tr_p)].copy()
-    m_te = m_all[~m_all['player_id'].isin(tr_p)].copy()
+    m_tr = pd.read_csv(dp('M_stats_values_train.csv'))
+    m_te = pd.read_csv(dp('M_stats_values_test.csv'))
     m_tr, m_te, wcaps_m = winsorize(m_tr, m_te, perf_cols)
     m_tr['age_log'] = np.log(m_tr['age']); m_te['age_log'] = np.log(m_te['age'])
     m_tr = one_hot(m_tr); m_te = one_hot(m_te)
@@ -220,8 +215,8 @@ def load_and_fit():
     hist_x_min = float(np.percentile(all_train_vals, 1))
     hist_x_max = float(np.percentile(all_train_vals, 99))
 
-    f_full = pd.read_csv(dp('F_stats_values.csv'))
-    m_full = pd.read_csv(dp('M_stats_values.csv'))
+    f_full = pd.concat([pd.read_csv(dp('F_stats_values_train.csv')), pd.read_csv(dp('F_stats_values_test.csv'))], ignore_index=True)
+    m_full = pd.concat([pd.read_csv(dp('M_stats_values_train.csv')), pd.read_csv(dp('M_stats_values_test.csv'))], ignore_index=True)
     m_full['league'] = m_full['league'].map(LEAGUE_MAP_M)
     f_full['date'] = pd.to_datetime(f_full['date'], errors='coerce')
     m_full['date'] = pd.to_datetime(m_full['date'], errors='coerce')
@@ -482,7 +477,7 @@ higher than Bundesliga, which was the reference category, contrary to our prior 
             "MF Prior":       ["+0.2","+0.2","+2.0","-3.0","+0.3","+1.0","+0.7","-0.2","0.0","~13.8"],
             "MF Posterior":   ["+0.036","+0.158","+2.198","-3.747","+0.374",
                                "+1.389","+0.595","+0.308","+0.515","~14.9"],
-        }), use_container_width=True, hide_index=True, height=388)
+        }), width='content', hide_index=True, height=388)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -513,7 +508,7 @@ else:
             key=f"player_select_{st.session_state['search_reset']}",
         )
     with col_clear:
-        if st.button("x Clear", use_container_width=True,
+        if st.button("x Clear", width='content',
                      disabled=(selected == ""),
                      help="Clear player selection and return to manual entry"):
             st.session_state['search_reset'] += 1
@@ -714,4 +709,4 @@ else:
             barmode="overlay",
             height=380, margin=dict(t=20, b=50),
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='content')

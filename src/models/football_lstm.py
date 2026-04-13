@@ -167,7 +167,7 @@ class FootballLSTM(nn.Module):
         return results_dict
         
     @torch.no_grad()
-    def eval_model_on_player(self, player_stats_df: pd.DataFrame, blocks_per_input: int=10):
+    def eval_model_on_player(self, player_stats_df: pd.DataFrame, blocks_per_input: int=10, title: str = ""):
         """
         Evaluates model performance on a particular player DataFrame. Uses the
         first blocks_per_input game blocks for training and the rest for testing, plotting
@@ -200,6 +200,10 @@ class FootballLSTM(nn.Module):
         
         fig, ax = plt.subplots(player_stats_df.shape[1], 1, layout="constrained", figsize=(20, 5 * len(player_stats_df.columns)))
         
+        plt.suptitle(title, fontsize=15, fontweight="bold")
+        
+        x = range(1, len(y_trues) + 1) # To get plot starting from 1
+        
         # Get plots for every stat
         for i, stat in enumerate(player_stats_df.columns):
             
@@ -210,12 +214,13 @@ class FootballLSTM(nn.Module):
             print(f"{stat} RMSE: {root_mean_squared_error(stat_actuals, stat_predictions)}")
             print(f"{stat} MAE: {mean_absolute_error(stat_actuals, stat_predictions)}")
             
-            ax[i].plot(stat_actuals, color="blue", label=f"Actual {stat}")
-            ax[i].plot(stat_predictions, color="red", label=f"Predicted {stat}")
-            ax[i].legend()
+            ax[i].plot(x, stat_actuals, color="blue", label=f"Actual {stat}")
+            ax[i].plot(x, stat_predictions, color="red", label=f"Predicted {stat}")
+            ax[i].legend(fontsize=13, loc="lower right")
             ax[i].grid()
-            ax[i].set_xlabel("Game Block")
-            ax[i].set_ylabel(f"{stat}")
+            ax[i].set_xlabel("Game Blocks Ahead", fontsize=15)
+            ax[i].set_ylabel(f"{stat}", fontsize=15)
+            ax[i].tick_params(axis='both', labelsize=12)
         
         plt.show()
    

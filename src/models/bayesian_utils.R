@@ -45,7 +45,9 @@ run_position_model <- function(position, prior_w, prior_Sigma, prior_alpha, prio
     X_test <- res$X
     y_test <- res$y
     
-    print(head(X_train))
+    #hist(y_train)
+    
+    #print(head(X_train))
     
     # Run Gibbs
     gibbs_res <- gibbs(X_train, y_train, prior_w, prior_Sigma, prior_alpha, prior_beta, no_samples=no_samples, burn=.18)
@@ -311,6 +313,8 @@ plot_player_posterior <- function(player_row, player_name, actual_value,
     preds <- player_posterior(player_row, gibbs_samples_w, gibbs_samples_sigmay)
     pred_euros <- exp(preds)
     
+    mean_val <- mean(pred_euros) # Also plot post pred in blue
+    
     # Use ggplot
     df <- data.frame(pred_euros = pred_euros)
     
@@ -318,10 +322,13 @@ plot_player_posterior <- function(player_row, player_name, actual_value,
         geom_histogram(bins = breaks, color="black") +
         geom_vline(aes(xintercept = actual_value,
                    colour = "Actual Value")) +
-        scale_color_manual(name = "", values = c("Actual Value" = "red")) +
+        geom_vline(aes(xintercept = mean_val,
+                       colour = "Posterior Mean")) +
+        scale_color_manual(name = "Legend", values = c("Actual Value" = "red", "Posterior Mean" = "blue")) +
         scale_x_continuous(labels = function(x) formatC(x, format = "f", digits = 0, big.mark = ",")) +
         labs(title = title,
-             x = "Predicted Market Value (euros)")
+             x = "Predicted Market Value (euros)",
+             y = "Count")
 }
 
 plot_player_value_over_time <- function(player_name, X, y, data,

@@ -98,12 +98,12 @@ def get_actuals_vs_predictions_df(stats_df: pd.DataFrame, model: nn.Module, bloc
         block_dates = player_df.index.get_level_values('date')
     
         # Calculate average time between consecutive blocks
-        deltas = pd.Series(block_dates).diff().dropna()
-        avg_delta = deltas.mean()
+        diffs = pd.Series(block_dates).diff()
+        avg_diff = diffs.mean()
     
         # Project forward from last known date
         last_date = block_dates[-1]
-        future_dates = [last_date + avg_delta * i for i in range(1, k + 1)]
+        future_dates = [last_date + avg_diff * i for i in range(1, k + 1)]
     
         return future_dates
     

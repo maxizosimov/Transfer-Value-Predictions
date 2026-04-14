@@ -6,8 +6,10 @@ library(MCMCpack) # For inverse gamma sampling
 library(data.table) # For single feature one-hot encoding
 library(ggplot2) # For plots
 
-run_position_model <- function(position, prior_w, prior_Sigma, prior_alpha, prior_beta, no_samples=1000) {
-    # This abstracts as much duplicate code as possible between the midfielder vs forward files
+run_position_model <- function(position, prior_w, prior_Sigma, prior_alpha, prior_beta, no_samples=1000, oversample_elite=T) {
+    # This abstracts as much duplicate code as possible between the midfielder vs forward files, first preprocessing
+    # then doing Gibbs sampling
+    # Also has functionality to oversample elite (>50M) players
     
     league_levels <- c("Bundesliga", "Serie_A", "Ligue_1", "La_Liga", "EPL")
     
@@ -15,6 +17,20 @@ run_position_model <- function(position, prior_w, prior_Sigma, prior_alpha, prio
     res <- load_position_real_data(position)
     train_data <- one_hot_encode_league(res$train_data, league_levels)
     test_data  <- one_hot_encode_league(res$test_data,  league_levels)
+    
+    if (oversample_elite) {
+        threshold <- 50000000 # Threshold to oversample
+        # Split into elite and non-elite
+        elite <- train_data[train_data$value >= threshold, ]
+        #print(nrow(elite))
+        non_elite <- train_data[train_data$value < threshold, ]
+        
+        # Oversample elite players
+        elite_oversampled <- elite[sample(nrow(elite), size = nrow(elite) * 3, replace = TRUE), ]
+        
+        # Recombine
+        train_data <- rbind(non_elite, elite_oversampled)
+    }
     
     # Winsorize
     winsor_params <- read.csv(sprintf('src/data/%s_winsorize_params.csv', position))

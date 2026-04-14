@@ -170,7 +170,7 @@ class FootballLSTM(nn.Module):
     def eval_model_on_player(self, player_stats_df: pd.DataFrame, blocks_per_input: int=10, title: str = ""):
         """
         Evaluates model performance on a particular player DataFrame. Uses the
-        first blocks_per_input game blocks for training and the rest for testing, plotting
+        first blocks_per_input game blocks for fitting and the rest for evaluation, plotting
         each actual vs. predicted stat over time.
         
         Also prints RMSE and MAE for the combined metrics, and for each metric

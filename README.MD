@@ -80,10 +80,10 @@ Utils file to abstract the performing of hyperparameter tuning for LSTM in noteb
 ## `preprocess`
 
 ### `data_basics.ipynb`
-A notebook to display the data in an EDA kind of way, showing both what requesting information from Transfermarket api and Understat api looks like.
+A notebook to display the data in an EDA kind of way, showing both what requesting information from Transfermarkt api and Understat api looks like.
 
 ### `player_stats.py`
-A data support file to load the correct data from the Understat API and create datasets for our LSTM. Creates a dataframe given a desired position (Defender, Midfielder, or Forward), creates  a torch dataset that uses the dataframe created for some player(s) to create input/output tensors that are passed to LSTM and merges with transfermarket api data to create full dataset used.
+A data support file to load the correct data from the Understat API and create datasets for our LSTM. Creates a dataframe given a desired position (Defender, Midfielder, or Forward), creates  a torch dataset that uses the dataframe created for some player(s) to create input/output tensors that are passed to LSTM and merges with transfermarkt api data to create full dataset used.
 
 ### `pull_understat_data.ipynb`
 Calling understat api given certain input such as leagues, positions, seasons, and stats which we then save to csv to avoid long api calls on every run.
@@ -98,7 +98,7 @@ A streamlit application showing two pages:
 
 ## APIs
 
-### Transfer Market API
+### Transfermarkt API
 
 Will be used in the future to collect data on transfer values of players in various leagues. These will
 be used as labels to predict transfer values.

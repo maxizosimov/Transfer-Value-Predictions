@@ -1,6 +1,5 @@
-from .football_lstm import FootballLSTM, DifferencingFootballLSTM
+from .football_lstm import FootballLSTM
 
 __all__ = [
-    "FootballLSM",
-    "DifferencingFootballLSTM"
+    "FootballLSM"
 ]

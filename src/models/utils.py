@@ -86,7 +86,7 @@ def get_actuals_vs_predictions_df(stats_df: pd.DataFrame, model: nn.Module, bloc
     player, before joining that prediction data with real Transfermarkt values.
     This provides actual/prediction pairs to help evaluate the Bayesian model.
     
-    max_look_ahead is uses to control how many blocks ahead to predict per player.
+    max_look_ahead is used to control how many blocks ahead to predict per player.
     If none, predicts as many blocks as the player has.
     """
     if max_look_ahead is None:

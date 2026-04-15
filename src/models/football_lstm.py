@@ -103,7 +103,7 @@ class FootballLSTM(nn.Module):
     @torch.no_grad()
     def get_test_preds(self, test_dataloader):
         """
-        For the given test dataframe, produced torch tensors for all true and
+        For the given test dataloader, produces torch tensors for all true and
         predicted outputs, each of shape (test_size, n_features). Also returns the number
         of steps ahead for each output
         """

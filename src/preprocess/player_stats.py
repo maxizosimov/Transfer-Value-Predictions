@@ -179,14 +179,15 @@ class CustomFootballDataset(Dataset):
     model.
     
     At a given index, one can get a pairing containing metrics for the last 
-    blocks_per_input game blocks, along with the current game's metrics as the label.
+    blocks_per_input game blocks, along with the current game's metrics as the label,
+    and the player id.
     """
     
     def __init__(self, stats_df: pd.DataFrame, blocks_per_input: int = 10, multiple_players: bool = True):
         """
         Initializes a CustomFootballDataset over the given stats_df, storing model
-        inputs, outputs, and number of blocks ahead for the player in X, y, and
-        look_ahead respectively. Each value in X provides
+        inputs, outputs, and player_id ahead for the player in X, y, and
+        player_ids respectively. Each value in X provides
         a 2d array of stats for the last blocks_per_input game blocks, each value
         in y provides stats for the current game to predict with the matching
         X values.
@@ -195,29 +196,30 @@ class CustomFootballDataset(Dataset):
         
         self.X = []
         self.y = []
-        self.look_ahead = []
+        self.player_ids = []
         
         if multiple_players:   
             # Break down by player
-            for _, player_df in stats_df.groupby("player_id"):
+            for id, player_df in stats_df.groupby("player_id"):
+                #print(player_df)
                 vals = player_df.values
                 for i in range(len(vals) - blocks_per_input):
                     self.X.append(vals[i:i + blocks_per_input])
                     self.y.append(vals[i + blocks_per_input])
-                    self.look_ahead.append(i+1)
+                    self.player_ids.append(id)
                     
         else:
             vals = stats_df.values
             for i in range(len(vals) - blocks_per_input):
                 self.X.append(vals[i:i + blocks_per_input])
                 self.y.append(vals[i + blocks_per_input])
-                self.look_ahead.append(i+1)
+                self.player_ids.append(stats_df["player_id"].iloc[0]) # Assume its always the same player
 
     def __len__(self):
         return len(self.X)
 
     def __getitem__(self, idx):
-        return torch.tensor(self.X[idx], dtype=torch.float32), torch.tensor(self.y[idx], dtype=torch.float32), torch.tensor(self.look_ahead[idx], dtype=torch.float32)
+        return torch.tensor(self.X[idx], dtype=torch.float32), torch.tensor(self.y[idx], dtype=torch.float32), self.player_ids[idx]
 
 def merge_stats_df_with_transfermarkt(stats_df: pd.DataFrame, use_transfermarkt_info=True) -> pd.DataFrame:
     """

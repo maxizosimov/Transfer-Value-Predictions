@@ -15,8 +15,8 @@ prior_w <- matrix(c(0.5, # xg - small positive since goals aren't so important f
                     0.3, # year - small positive for inflation
                     0, # Serie A - equivalent to Bundesliga
                     -0.2, # Ligue 1 - worse than Bunesliga
-                    .4, # La liga - next most after PL
-                    .7, # PL - most expensive league
+                    .7, # La liga - next most after PL
+                    1, # PL - most expensive league
                     log(1000000) # intercept - when everything else is 0 (min stats + Bundesliga)
 ), ncol = 1)
 p <- nrow(prior_w)

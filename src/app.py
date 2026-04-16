@@ -202,11 +202,11 @@ def load_and_fit():
     m_tr['age_log'] = np.log(m_tr['age']); m_te['age_log'] = np.log(m_te['age'])
     m_tr = one_hot(m_tr); m_te = one_hot(m_te)
     m_tr, m_te, cmin_m, cmax_m = minmax_scale(m_tr, m_te, cont_cols)
-    feat_m = ['xG_per_90','xA_per_90','xGChain_per_90','year','age_log',
-              'Serie_A','Ligue_1','EPL','La_Liga']
+    feat_m = ['xG_per_90','xA_per_90','xGChain_per_90','age_log','year',
+              'Serie_A','Ligue_1','La_Liga','EPL']
     Xm = np.hstack([m_tr[feat_m].values, np.ones((len(m_tr), 1))])
     ym = np.log(m_tr['value'].values)
-    pw_m = np.array([0.5, 0.5, 1.0, 0.3, -3.0, 0.0, -0.2, 1.0, 0.7, np.log(1e6)])
+    pw_m = np.array([0.5, 0.5, 1.0, -3.0, 0.3, 0.0, -0.2, 0.7, 1.0, np.log(1e6)])
     sw_m, ss_m = run_gibbs(Xm, ym, pw_m)
     m_thr = {k: float(np.percentile(m_tr['value'].values, p))
              for k, p in [('squad', 25), ('firstteam', 50), ('topflight', 75)]}
@@ -283,76 +283,18 @@ def build_x_row(position, xg, xa, xgc, age, year, league):
 
     loh_f = {"EPL":[0,0,0,1],"La Liga":[0,0,1,0],"Bundesliga":[0,0,0,0],
              "Serie A":[1,0,0,0],"Ligue 1":[0,1,0,0]}
-    loh_m = {"EPL":[0,0,1,0],"La Liga":[0,0,0,1],"Bundesliga":[0,0,0,0],
-             "Serie A":[1,0,0,0],"Ligue 1":[0,1,0,0]}
 
     if position == 'Forward':
         return np.array([sc(xg,'xG_per_90'), sc(xa,'xA_per_90'), sc(xgc,'xGChain_per_90'),
                          al, yr] + loh_f[league] + [1.0])
     else:
         return np.array([sc(xg,'xG_per_90'), sc(xa,'xA_per_90'), sc(xgc,'xGChain_per_90'),
-                         yr, al] + loh_m[league] + [1.0])
+                         al, yr] + loh_f[league] + [1.0])
 
 def posterior_draws(x_row, sw, ss, seed=42):
     np.random.seed(seed)
     return np.array([np.random.normal(x_row @ sw[j], np.sqrt(ss[j]))
                      for j in range(len(sw))])
-
-def build_summary_text(position, median_val, lo_val, hi_val, mean_val):
-    thr = D['f_thr'] if position == 'Forward' else D['m_thr']
-
-    if median_val <= thr['squad']:
-        tier_label = "a <strong>squad player</strong>"
-        tier_desc  = ("falls in the lower quartile of the "
-                      f"{position.lower()} market, typical of rotation options "
-                      "or depth signings")
-    elif median_val <= thr['firstteam']:
-        tier_label = "a <strong>first-team asset</strong>"
-        tier_desc  = ("sits around the median of the "
-                      f"{position.lower()} market, representing a standard "
-                      "first-team investment")
-    elif median_val <= thr['topflight']:
-        tier_label = "a <strong>top-flight talent</strong>"
-        tier_desc  = ("falls in the upper quartile of the "
-                      f"{position.lower()} market, an impactful starter "
-                      "above average for their position")
-    else:
-        tier_label = "an <strong>elite player</strong>"
-        tier_desc  = ("sits above the 75th percentile of the "
-                      f"{position.lower()} market, a standout performer "
-                      "commanding premium fees")
-
-    rw = (hi_val - lo_val) / max(median_val, 1.0)
-    if rw < 1.5:
-        unc = (f"The 90% credible interval (€{lo_val/1e6:.1f}M to €{hi_val/1e6:.1f}M) "
-               "is relatively tight, suggesting the model has comparatively high "
-               "confidence in this range.")
-    elif rw < 3.5:
-        unc = (f"The 90% credible interval spans €{lo_val/1e6:.1f}M to €{hi_val/1e6:.1f}M, "
-               "a moderate spread. Factors beyond statistics, such as contract length and "
-               "injury history, likely account for the remaining uncertainty.")
-    else:
-        unc = (f"The 90% credible interval is wide (€{lo_val/1e6:.1f}M to €{hi_val/1e6:.1f}M), "
-               "indicating this valuation is speculative. The median should be treated "
-               "as a rough signal rather than a firm anchor.")
-
-    skew = mean_val / max(median_val, 1.0)
-    if skew > 1.25:
-        snote = (f" The posterior mean (€{mean_val/1e6:.1f}M) sits above the median "
-                 f"(€{median_val/1e6:.1f}M), reflecting right skew: a small probability "
-                 "of very high valuations is pulling the average upward.")
-    elif skew < 0.80:
-        snote = (f" The posterior mean (€{mean_val/1e6:.1f}M) sits below the median "
-                 f"(€{median_val/1e6:.1f}M), indicating mild left skew.")
-    else:
-        snote = ""
-
-    return (f"<div class='val-summary'>"
-            f"At a posterior median of <strong>€{median_val/1e6:.1f}M</strong>, "
-            f"this player is estimated to be {tier_label}: their valuation "
-            f"{tier_desc}. "
-            f"{unc}{snote}"
-            f"</div>")
 
 def get_plot_cfg():
     is_dark = st.get_option("theme.base") == "dark"
@@ -679,9 +621,6 @@ else:
         m3.metric("90% CI Lower",     f"€{lo_v/1e6:.1f}M")
         m4.metric("90% CI Upper",     f"€{hi_v/1e6:.1f}M")
 
-        st.markdown(build_summary_text(pos, med_v, lo_v, hi_v, mean_v),
-                    unsafe_allow_html=True)
-
         st.markdown("### Posterior Predictive Distribution")
         st.markdown(
             "<span style='font-size:0.84rem;color:#555'>"
@@ -693,7 +632,7 @@ else:
         )
 
         x_min = D['hist_x_min']
-        x_max = D['hist_x_max'] * 1.1
+        x_max = max(D['hist_x_max'] * 1.1, np.quantile(vd, 0.99)) * 1.1
         bins  = np.linspace(x_min, x_max, 70)
         bw    = (bins[1] - bins[0]) / 1e6
 

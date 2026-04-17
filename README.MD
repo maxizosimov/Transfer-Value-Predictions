@@ -97,12 +97,15 @@ A streamlit application showing two pages:
 1. An overview of the project.
 2. An interactive visualization used to show how we would use our bayesian part of project (which also builds on LSTM results). Idea is that you can either input custom inputs or use ones from an existing player from the dataset and see the results of our Bayesian model to be able to assess the predicted transfer value. If you choose a real player, you can tweak the stats using sliders to see, for example, if their expected goals were to increase, how that changes the predictions. 
 
-## APIs
+# APIs
 
-### Transfermarkt API
+## Transfermarkt API
 
 Collect data on transfer values of players in various leagues. These are used as labels to predict transfer values.
 
-### Understat API
+## Understat API
 
 Provides data on player performances on a game level, which we use to predict future performances. We associate player performance, among other features with player transfer market values, so that we can use player performance predictions to predict player transfer market values.
+
+# Web App
+An interactive application of the Bayesian model can be found at https://transfer-value-predictions-vkgbjmkcpyp5jqtkormip8.streamlit.app/
